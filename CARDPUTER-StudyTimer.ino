@@ -147,9 +147,9 @@ const uint8_t LOW_BATTERY_THRESHOLD_PERCENT = 20;
 const SettingsItemPosition SETTINGS_ITEM_POSITIONS[] = {
     {SETTINGS_LANG_JA, 82, 50},
     {SETTINGS_LANG_EN, 176, 50},
-    {SETTINGS_SOUND_QUIET, 58, 90},
-    {SETTINGS_SOUND_NORMAL, 126, 90},
-    {SETTINGS_SOUND_LOUD, 190, 90},
+    {SETTINGS_SOUND_QUIET, 56, 86},
+    {SETTINGS_SOUND_NORMAL, 166, 86},
+    {SETTINGS_SOUND_LOUD, 120, 108},
 };
 
 AppState appState = STATE_READY;
@@ -1172,13 +1172,13 @@ void drawScreen()
                 settingsItemColor(SETTINGS_LANG_JA, currentLanguage == LANG_JA));
     drawLabelAt(settingsLabel(SETTINGS_LANG_EN, "2 English", "2 English"), 132, 42,
                 settingsItemColor(SETTINGS_LANG_EN, currentLanguage == LANG_EN));
-    drawLabelAt(settingsLabel(SETTINGS_SOUND_QUIET, "3 Quiet", "3 静音"), 18, 82,
+    drawLabelAt(settingsLabel(SETTINGS_SOUND_QUIET, "3 Quiet", "3 静音"), 8, 76,
                 settingsItemColor(SETTINGS_SOUND_QUIET, currentSoundMode == SOUND_QUIET));
-    drawLabelAt(settingsLabel(SETTINGS_SOUND_NORMAL, "4 Normal", "4 普通の音"), 86, 82,
+    drawLabelAt(settingsLabel(SETTINGS_SOUND_NORMAL, "4 Normal", "4 普通の音"), 118, 76,
                 settingsItemColor(SETTINGS_SOUND_NORMAL, currentSoundMode == SOUND_NORMAL));
-    drawLabelAt(settingsLabel(SETTINGS_SOUND_LOUD, "5 Loud", "5 うるさい"), 162, 82,
+    drawLabelAt(settingsLabel(SETTINGS_SOUND_LOUD, "5 Loud", "5 うるさい"), 74, 98,
                 settingsItemColor(SETTINGS_SOUND_LOUD, currentSoundMode == SOUND_LOUD));
-    drawCenteredLabel(tr("DEL BACK", "DEL 戻る"), 116, MUTED_COLOR);
+    drawCenteredLabel(tr("DEL BACK", "DEL 戻る"), 120, MUTED_COLOR);
     break;
 
   case STATE_CONFIRM_RESET:

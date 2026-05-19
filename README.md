@@ -2,6 +2,8 @@
 
 A calm, low-friction study timer for the M5Stack Cardputer.
 
+![CARDPUTER StudyTimer overview](images/overview.jpeg)
+
 The timer is the primary feature. Logging is a passive side effect. The intended daily flow is:
 
 ```text
@@ -74,6 +76,8 @@ Wi-Fi and NTP are optional background helpers. The timer remains usable even if 
 - `Fn + /`: move right
 - `Enter`: apply selected item
 - `Del`: return to Ready
+
+![Settings screen](images/settings.jpeg)
 
 ## Configuration
 
@@ -151,6 +155,7 @@ This public-ready repository intentionally tracks only:
 - `README.md`
 - `README.ja.md`
 - `config.example.h`
+- `images/`
 - `.gitignore`
 
 Local notes, generated docs, private configuration, and editor files are ignored.

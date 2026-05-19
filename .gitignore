@@ -4,3 +4,6 @@
 !README.ja.md
 !README.md
 !config.example.h
+!images/
+!images/*.jpeg
+!images/*.jpg
