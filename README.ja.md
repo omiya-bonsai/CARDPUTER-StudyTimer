@@ -154,8 +154,15 @@ arduino-cli compile --fqbn m5stack:esp32:m5stack_cardputer .
 - `CARDPUTER-StudyTimer.ino`
 - `README.md`
 - `README.ja.md`
+- `LICENSE`
 - `config.example.h`
 - `images/`
 - `.gitignore`
 
 ローカルメモ、自動生成ドキュメント、個人用設定、エディタ関連ファイルは追跡対象外です。
+
+## ライセンス
+
+このプロジェクトは MIT License のもとで公開されています。
+
+Copyright (c) 2026 omiya-bonsai

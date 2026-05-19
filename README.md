@@ -154,8 +154,15 @@ This public-ready repository intentionally tracks only:
 - `CARDPUTER-StudyTimer.ino`
 - `README.md`
 - `README.ja.md`
+- `LICENSE`
 - `config.example.h`
 - `images/`
 - `.gitignore`
 
 Local notes, generated docs, private configuration, and editor files are ignored.
+
+## License
+
+This project is licensed under the MIT License.
+
+Copyright (c) 2026 omiya-bonsai
