@@ -161,6 +161,10 @@ This public-ready repository intentionally tracks only:
 
 Local notes, generated docs, private configuration, and editor files are ignored.
 
+## AI Assistance
+
+This project was developed with assistance from AI tools, including Codex app and GitHub Copilot.
+
 ## License
 
 This project is licensed under the MIT License.
