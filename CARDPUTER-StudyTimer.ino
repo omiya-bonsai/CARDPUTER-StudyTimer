@@ -86,6 +86,12 @@ struct SettingsItemPosition {
   int y;
 };
 
+struct LogTimeFields {
+  String date;
+  String time;
+  bool synced;
+};
+
 const uint32_t DEFAULT_TIMER_SECONDS = 25UL * 60UL;
 const uint16_t MIN_TIMER_MINUTES = 1;
 const uint16_t MAX_TIMER_MINUTES = 99;
@@ -387,20 +393,41 @@ void updateBackgroundTimeSync() {
   }
 }
 
-String currentTimestamp() {
+LogTimeFields currentLogTimeFields() {
+  LogTimeFields fields = {"", "", false};
   if (!timeSynced) {
-    return "";
+    return fields;
   }
 
   struct tm timeInfo;
   if (!getLocalTime(&timeInfo, 5)) {
     timeSynced = false;
-    return "";
+    return fields;
   }
 
-  char buffer[20];
-  strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", &timeInfo);
-  return String(buffer);
+  char dateBuffer[11];
+  char timeBuffer[9];
+  strftime(dateBuffer, sizeof(dateBuffer), "%Y-%m-%d", &timeInfo);
+  strftime(timeBuffer, sizeof(timeBuffer), "%H:%M:%S", &timeInfo);
+  fields.date = dateBuffer;
+  fields.time = timeBuffer;
+  fields.synced = true;
+  return fields;
+}
+
+String normalizedInputType() {
+  if (activeTimerSource == "custom") {
+    return "custom";
+  }
+
+  for (uint8_t index = 0; index < sizeof(PRESET_MINUTES) / sizeof(PRESET_MINUTES[0]); index++) {
+    String presetSource = "preset" + String(index + 1);
+    if (activeTimerSource == presetSource || selectedMinutes() == PRESET_MINUTES[index]) {
+      return presetSource;
+    }
+  }
+
+  return "custom";
 }
 
 bool ensureLogHeader() {
@@ -412,7 +439,7 @@ bool ensureLogHeader() {
   if (!file) {
     return false;
   }
-  file.println("timestamp,status,duration_min,duration_sec,completed,source");
+  file.println("date,time,sync_status,duration_min,completed,input_type");
   file.close();
   return true;
 }
@@ -434,19 +461,18 @@ bool appendCompletedLog() {
     return false;
   }
 
-  String timestamp = currentTimestamp();
-  bool syncedLog = timestamp.length() > 0;
+  LogTimeFields logTime = currentLogTimeFields();
 
-  file.print(timestamp);
+  file.print(logTime.date);
   file.print(",");
-  file.print(syncedLog ? "synced" : "unsynced");
+  file.print(logTime.time);
+  file.print(",");
+  file.print(logTime.synced ? "synced" : "unsynced");
   file.print(",");
   file.print(selectedMinutes());
   file.print(",");
-  file.print(selectedSeconds);
-  file.print(",");
   file.print("1,");
-  file.println(activeTimerSource);
+  file.println(normalizedInputType());
   file.close();
 
   lastLogSaved = true;
