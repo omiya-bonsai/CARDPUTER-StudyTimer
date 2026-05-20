@@ -68,7 +68,7 @@ Wi-Fi and NTP are optional background helpers. The timer remains usable even if 
 
 ### Settings
 
-Press `S` to open Language, then use `fn + /` and `fn + ;` to switch between Language, Volume, and Mode in page order.
+Press `S` to open Language, then use `fn + /` and `fn + ,` to switch between Language, Volume, and Mode in page order.
 
 Language:
 
@@ -90,9 +90,9 @@ The default mode is Simple. CSV logging and time sync continue in the background
 
 Controls:
 
-- `fn + ;`: previous settings page
-- `fn + ,`: move selection down
-- `fn + .`: move selection up
+- `fn + ,`: previous settings page
+- `fn + ;`: move selection up
+- `fn + .`: move selection down
 - `fn + /`: next settings page
 - `Enter`: apply selected item
 - `Del`: return to Ready
