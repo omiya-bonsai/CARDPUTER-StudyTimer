@@ -388,7 +388,7 @@ void drawScreen()
     break;
   case STATE_VOLUME_SETTINGS:
     drawCenteredLabel(tr("Volume", "音量の設定"), 4, TEXT_COLOR);
-    drawCenteredLabel(tr("PREV Fn+;  NEXT Fn+/", "前 Fn+;  次 Fn+/"), 24, MUTED_COLOR);
+    drawCenteredLabel(tr("PREV Fn+,  NEXT Fn+/", "前 Fn+,  次 Fn+/"), 24, MUTED_COLOR);
     drawLabelAt(settingsLabel(SETTINGS_SOUND_QUIET, "1 Quiet", "1 静音"), 62, 44, settingsItemColor(SETTINGS_SOUND_QUIET, currentSoundMode == SOUND_QUIET));
     drawLabelAt(settingsLabel(SETTINGS_SOUND_NORMAL, "2 Normal", "2 普通の音"), 62, 68, settingsItemColor(SETTINGS_SOUND_NORMAL, currentSoundMode == SOUND_NORMAL));
     drawLabelAt(settingsLabel(SETTINGS_SOUND_LOUD, "3 Loud", "3 うるさい"), 62, 96, settingsItemColor(SETTINGS_SOUND_LOUD, currentSoundMode == SOUND_LOUD));
@@ -396,7 +396,7 @@ void drawScreen()
     break;
   case STATE_MODE_SETTINGS:
     drawCenteredLabel(tr("Mode", "モード"), 10, TEXT_COLOR);
-    drawCenteredLabel(tr("PREV: Fn+;", "前: Fn+;"), 28, MUTED_COLOR);
+    drawCenteredLabel(tr("PREV: Fn+,", "前: Fn+,"), 28, MUTED_COLOR);
     drawLabelAt(settingsLabel(SETTINGS_MODE_SIMPLE, "1 Simple", "1 シンプル"), 62, 52, settingsItemColor(SETTINGS_MODE_SIMPLE, currentFeatureMode == MODE_SIMPLE));
     drawLabelAt(settingsLabel(SETTINGS_MODE_RICH, "2 Rich", "2 リッチ"), 62, 80, settingsItemColor(SETTINGS_MODE_RICH, currentFeatureMode == MODE_RICH));
     drawCenteredLabel(tr("DEL BACK", "DEL 戻る"), 120, MUTED_COLOR);

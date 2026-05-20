@@ -453,15 +453,15 @@ SettingsDirection settingsDirectionFromKeys(const Keyboard_Class::KeysState &key
   {
     if (key == ';')
     {
-      return SETTINGS_DIRECTION_LEFT;
+      return SETTINGS_DIRECTION_UP;
     }
     if (key == ',')
     {
-      return SETTINGS_DIRECTION_DOWN;
+      return SETTINGS_DIRECTION_LEFT;
     }
     if (key == '.')
     {
-      return SETTINGS_DIRECTION_UP;
+      return SETTINGS_DIRECTION_DOWN;
     }
     if (key == '/')
     {
