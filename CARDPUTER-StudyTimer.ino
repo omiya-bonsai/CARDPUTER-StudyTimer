@@ -1890,8 +1890,13 @@ void drawStatsScreen()
 
   if (!stats.timeReady)
   {
-    drawCenteredLabel(timeStatusLabel(), 48, MUTED_COLOR);
-    drawCenteredLabel(tr("SYNC NEEDED", "同期が必要"), 76, MUTED_COLOR);
+    TimeStatus status = currentTimeStatus();
+    const char *statusLabel = status == TIME_STATUS_SYNCED ? tr("NO DATE", "日付なし") : timeStatusLabel();
+    drawCenteredLabel(statusLabel, 48, MUTED_COLOR);
+    if (status != TIME_STATUS_SYNCED)
+    {
+      drawCenteredLabel(tr("SYNC NEEDED", "同期が必要"), 76, MUTED_COLOR);
+    }
     drawCenteredLabel(tr("DEL BACK", "DEL 戻る"), 120, MUTED_COLOR);
     return;
   }
