@@ -287,7 +287,7 @@ const char *soundModeText()
   switch (currentSoundMode)
   {
   case SOUND_QUIET:
-    return tr("Quiet", "静音");
+    return tr("Quiet", "消音");
 
   case SOUND_LOUD:
     return tr("Loud", "うるさい");

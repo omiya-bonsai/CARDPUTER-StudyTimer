@@ -426,7 +426,7 @@ void drawScreen()
   case STATE_VOLUME_SETTINGS:
     drawCenteredLabel(tr("Volume", "音量の設定"), 4, TEXT_COLOR);
     drawCenteredHotkeyLabel(tr("PREV fn+,  NEXT fn+/", "前 fn+,  次 fn+/"), 24);
-    drawLabelAt(settingsLabel(SETTINGS_SOUND_QUIET, "1 Quiet", "1 静音"), 62, 44, settingsItemColor(SETTINGS_SOUND_QUIET, currentSoundMode == SOUND_QUIET));
+    drawLabelAt(settingsLabel(SETTINGS_SOUND_QUIET, "1 Quiet", "1 消音"), 62, 44, settingsItemColor(SETTINGS_SOUND_QUIET, currentSoundMode == SOUND_QUIET));
     drawLabelAt(settingsLabel(SETTINGS_SOUND_NORMAL, "2 Normal", "2 普通の音"), 62, 68, settingsItemColor(SETTINGS_SOUND_NORMAL, currentSoundMode == SOUND_NORMAL));
     drawLabelAt(settingsLabel(SETTINGS_SOUND_LOUD, "3 Loud", "3 うるさい"), 62, 96, settingsItemColor(SETTINGS_SOUND_LOUD, currentSoundMode == SOUND_LOUD));
     drawCenteredLabel(tr("DEL BACK", "DEL 戻る"), 120, MUTED_COLOR);
