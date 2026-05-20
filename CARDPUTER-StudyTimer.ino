@@ -51,6 +51,7 @@ enum AppState
   STATE_PAUSED,
   STATE_DONE,
   STATE_STATS,
+  STATE_VOICE_MEMOS,
   STATE_LANGUAGE_SETTINGS,
   STATE_VOLUME_SETTINGS,
   STATE_CONFIRM_RESET
@@ -111,6 +112,30 @@ struct StudyStats
   uint16_t dayMinutes[7];
 };
 
+struct VoiceMemoEntry
+{
+  String path;
+  String label;
+  uint32_t sizeBytes;
+};
+
+struct __attribute__((packed)) WavHeader
+{
+  char riff[4];
+  uint32_t chunkSize;
+  char wave[4];
+  char fmt[4];
+  uint32_t fmtSize;
+  uint16_t audioFormat;
+  uint16_t channels;
+  uint32_t sampleRate;
+  uint32_t byteRate;
+  uint16_t blockAlign;
+  uint16_t bitsPerSample;
+  char data[4];
+  uint32_t dataSize;
+};
+
 const uint32_t DEFAULT_TIMER_SECONDS = 25UL * 60UL;
 const uint16_t MIN_TIMER_MINUTES = 1;
 const uint16_t MAX_TIMER_MINUTES = 99;
@@ -120,6 +145,7 @@ const char *PREF_LAST_MINUTES = "last_minutes";
 const char *PREF_LANGUAGE = "language";
 const char *PREF_SOUND_MODE = "sound_mode";
 const char *LOG_FILENAME = "/study_log.csv";
+const char *VOICE_MEMO_DIR = "/voice_memos";
 const uint8_t SD_SPI_SCK_PIN = 40;
 const uint8_t SD_SPI_MOSI_PIN = 14;
 const uint8_t SD_SPI_MISO_PIN = 39;
@@ -156,6 +182,12 @@ const uint16_t SEGMENT_OFF_COLOR = 0x18E3;
 const uint16_t SEGMENT_DIM_COLOR = 0x4208;
 const uint16_t LOW_BATTERY_COLOR = TFT_RED;
 const uint8_t LOW_BATTERY_THRESHOLD_PERCENT = 20;
+const uint32_t VOICE_SAMPLE_RATE = 8000;
+const uint16_t VOICE_RECORD_SAMPLES = 256;
+const uint16_t VOICE_PLAYBACK_SAMPLES = 512;
+const uint8_t VOICE_PLAYBACK_BUFFERS = 3;
+const uint8_t VOICE_MEMO_MAX_ENTRIES = 50;
+const uint8_t VOICE_PLAYBACK_CHANNEL = 0;
 const SettingsItemPosition LANGUAGE_SETTINGS_ITEM_POSITIONS[] = {
     {SETTINGS_LANG_JA, 120, 52},
     {SETTINGS_LANG_EN, 120, 80},
@@ -168,6 +200,7 @@ const SettingsItemPosition VOLUME_SETTINGS_ITEM_POSITIONS[] = {
 
 AppState appState = STATE_READY;
 AppState stateBeforeConfirm = STATE_READY;
+AppState stateBeforeVoiceMemos = STATE_READY;
 UiLanguage currentLanguage = LANG_JA;
 SoundMode currentSoundMode = SOUND_NORMAL;
 SettingsItem selectedSettingsItem = SETTINGS_LANG_JA;
@@ -193,6 +226,23 @@ uint32_t lastSegmentBlinkMs = 0;
 uint8_t currentBrightness = BRIGHTNESS_NORMAL;
 bool segmentBlinkOn = true;
 bool needsRedraw = true;
+bool voiceMemoKeyDown = false;
+bool voiceRecording = false;
+bool voicePlaying = false;
+bool voicePlaybackSpeakerReady = false;
+uint32_t voiceRecordingStartedMs = 0;
+uint32_t voiceRecordedBytes = 0;
+uint32_t voicePlaybackBytesRemaining = 0;
+uint8_t voicePlaybackBufferIndex = 0;
+uint8_t selectedVoiceMemoIndex = 0;
+uint8_t voiceMemoCount = 0;
+String voiceStatusText = "";
+uint32_t voiceStatusUntilMs = 0;
+File voiceMemoFile;
+File voicePlaybackFile;
+VoiceMemoEntry voiceMemoEntries[VOICE_MEMO_MAX_ENTRIES];
+int16_t voiceRecordBuffer[VOICE_RECORD_SAMPLES];
+int16_t voicePlaybackBuffers[VOICE_PLAYBACK_BUFFERS][VOICE_PLAYBACK_SAMPLES];
 
 String formatTime(uint32_t seconds)
 {
@@ -488,6 +538,365 @@ String currentDateString()
 {
   LogTimeFields fields = currentLogTimeFields();
   return fields.date;
+}
+
+void setVoiceStatus(const char *text, uint32_t durationMs = 1800)
+{
+  voiceStatusText = text;
+  voiceStatusUntilMs = millis() + durationMs;
+  needsRedraw = true;
+}
+
+WavHeader makeWavHeader(uint32_t dataSize)
+{
+  WavHeader header = {
+      {'R', 'I', 'F', 'F'},
+      dataSize + 36,
+      {'W', 'A', 'V', 'E'},
+      {'f', 'm', 't', ' '},
+      16,
+      1,
+      1,
+      VOICE_SAMPLE_RATE,
+      VOICE_SAMPLE_RATE * 2,
+      2,
+      16,
+      {'d', 'a', 't', 'a'},
+      dataSize};
+  return header;
+}
+
+void writeWavHeader(File &file, uint32_t dataSize)
+{
+  WavHeader header = makeWavHeader(dataSize);
+  file.write(reinterpret_cast<uint8_t *>(&header), sizeof(header));
+}
+
+bool ensureVoiceMemoDir()
+{
+  if (!sdAvailable)
+  {
+    return false;
+  }
+  if (SD.exists(VOICE_MEMO_DIR))
+  {
+    return true;
+  }
+  return SD.mkdir(VOICE_MEMO_DIR);
+}
+
+String nextVoiceMemoPath()
+{
+  LogTimeFields fields = currentLogTimeFields();
+  if (fields.synced)
+  {
+    String timePart = fields.time;
+    timePart.replace(":", "");
+    String basePath = String(VOICE_MEMO_DIR) + "/" + fields.date + "_" + timePart;
+    String path = basePath + ".wav";
+    for (uint8_t suffix = 2; SD.exists(path.c_str()) && suffix < 100; suffix++)
+    {
+      path = basePath + "_" + String(suffix) + ".wav";
+    }
+    return path;
+  }
+
+  for (uint16_t index = 1; index < 1000; index++)
+  {
+    char name[32];
+    snprintf(name, sizeof(name), "/memo_%03u.wav", index);
+    String path = String(VOICE_MEMO_DIR) + name;
+    if (!SD.exists(path.c_str()))
+    {
+      return path;
+    }
+  }
+  return String(VOICE_MEMO_DIR) + "/memo.wav";
+}
+
+String voiceMemoLabelFromPath(const String &path)
+{
+  int slash = path.lastIndexOf('/');
+  String label = slash >= 0 ? path.substring(slash + 1) : path;
+  if (label.endsWith(".wav"))
+  {
+    label.remove(label.length() - 4);
+  }
+  if (label.length() > 18)
+  {
+    label = label.substring(0, 18);
+  }
+  return label;
+}
+
+void stopVoiceMemoPlayback()
+{
+  if (voicePlaying)
+  {
+    M5Cardputer.Speaker.stop(VOICE_PLAYBACK_CHANNEL);
+  }
+  if (voicePlaybackFile)
+  {
+    voicePlaybackFile.close();
+  }
+  voicePlaying = false;
+  voicePlaybackBytesRemaining = 0;
+  needsRedraw = true;
+}
+
+void loadVoiceMemoList()
+{
+  voiceMemoCount = 0;
+  selectedVoiceMemoIndex = 0;
+  if (!ensureVoiceMemoDir())
+  {
+    return;
+  }
+
+  File dir = SD.open(VOICE_MEMO_DIR);
+  if (!dir)
+  {
+    return;
+  }
+
+  File entry = dir.openNextFile();
+  while (entry && voiceMemoCount < VOICE_MEMO_MAX_ENTRIES)
+  {
+    if (!entry.isDirectory())
+    {
+      String entryName = entry.name();
+      String path = entryName.startsWith("/") ? entryName : String(VOICE_MEMO_DIR) + "/" + entryName;
+      if (path.endsWith(".wav"))
+      {
+        voiceMemoEntries[voiceMemoCount].path = path;
+        voiceMemoEntries[voiceMemoCount].label = voiceMemoLabelFromPath(path);
+        voiceMemoEntries[voiceMemoCount].sizeBytes = entry.size();
+        voiceMemoCount++;
+      }
+    }
+    entry.close();
+    entry = dir.openNextFile();
+  }
+  dir.close();
+}
+
+void openVoiceMemos()
+{
+  if (appState == STATE_RUNNING || appState == STATE_CUSTOM_INPUT || voiceRecording)
+  {
+    return;
+  }
+  stopVoiceMemoPlayback();
+  loadVoiceMemoList();
+  stateBeforeVoiceMemos = appState;
+  setState(STATE_VOICE_MEMOS);
+}
+
+void closeVoiceMemos()
+{
+  stopVoiceMemoPlayback();
+  setState(stateBeforeVoiceMemos);
+}
+
+void startVoiceRecording()
+{
+  if (voiceRecording || voicePlaying)
+  {
+    return;
+  }
+  if (!ensureVoiceMemoDir())
+  {
+    setVoiceStatus("NO SD");
+    return;
+  }
+
+  String path = nextVoiceMemoPath();
+  voiceMemoFile = SD.open(path.c_str(), FILE_WRITE);
+  if (!voiceMemoFile)
+  {
+    setVoiceStatus("REC ERR");
+    return;
+  }
+
+  writeWavHeader(voiceMemoFile, 0);
+  M5Cardputer.Speaker.end();
+  if (!M5Cardputer.Mic.begin())
+  {
+    voiceMemoFile.close();
+    SD.remove(path.c_str());
+    M5Cardputer.Speaker.begin();
+    M5Cardputer.Speaker.setVolume(80);
+    setVoiceStatus("MIC ERR");
+    return;
+  }
+
+  voiceRecording = true;
+  voiceRecordingStartedMs = millis();
+  voiceRecordedBytes = 0;
+  needsRedraw = true;
+}
+
+void finishVoiceRecording()
+{
+  if (!voiceRecording)
+  {
+    return;
+  }
+
+  while (M5Cardputer.Mic.isRecording())
+  {
+    delay(1);
+  }
+  M5Cardputer.Mic.end();
+
+  if (voiceMemoFile)
+  {
+    voiceMemoFile.seek(0);
+    writeWavHeader(voiceMemoFile, voiceRecordedBytes);
+    voiceMemoFile.close();
+  }
+
+  M5Cardputer.Speaker.begin();
+  M5Cardputer.Speaker.setVolume(80);
+  voiceRecording = false;
+  setVoiceStatus(voiceRecordedBytes > 0 ? "SAVED" : "EMPTY");
+  if (appState == STATE_VOICE_MEMOS)
+  {
+    loadVoiceMemoList();
+  }
+}
+
+void updateVoiceRecording()
+{
+  if (!voiceRecording)
+  {
+    return;
+  }
+
+  if (M5Cardputer.Mic.record(voiceRecordBuffer, VOICE_RECORD_SAMPLES, VOICE_SAMPLE_RATE, false))
+  {
+    size_t bytes = sizeof(voiceRecordBuffer);
+    voiceMemoFile.write(reinterpret_cast<uint8_t *>(voiceRecordBuffer), bytes);
+    voiceRecordedBytes += bytes;
+  }
+}
+
+void updateVoiceMemoShortcut()
+{
+  Keyboard_Class::KeysState keys = M5Cardputer.Keyboard.keysState();
+  bool mPressed = false;
+  for (char key : keys.word)
+  {
+    if (key == 'm' || key == 'M')
+    {
+      mPressed = true;
+      break;
+    }
+  }
+
+  if (mPressed && !voiceMemoKeyDown)
+  {
+    voiceMemoKeyDown = true;
+    startVoiceRecording();
+  }
+  else if (!mPressed && voiceMemoKeyDown)
+  {
+    voiceMemoKeyDown = false;
+    finishVoiceRecording();
+  }
+}
+
+bool startVoiceMemoPlayback()
+{
+  if (voiceMemoCount == 0 || selectedVoiceMemoIndex >= voiceMemoCount)
+  {
+    return false;
+  }
+
+  stopVoiceMemoPlayback();
+  voicePlaybackFile = SD.open(voiceMemoEntries[selectedVoiceMemoIndex].path.c_str(), FILE_READ);
+  if (!voicePlaybackFile)
+  {
+    setVoiceStatus("PLAY ERR");
+    return false;
+  }
+
+  WavHeader header;
+  if (voicePlaybackFile.read(reinterpret_cast<uint8_t *>(&header), sizeof(header)) != sizeof(header) ||
+      memcmp(header.riff, "RIFF", 4) != 0 ||
+      memcmp(header.wave, "WAVE", 4) != 0 ||
+      memcmp(header.data, "data", 4) != 0 ||
+      header.audioFormat != 1 ||
+      header.channels != 1 ||
+      header.bitsPerSample != 16 ||
+      header.sampleRate != VOICE_SAMPLE_RATE)
+  {
+    voicePlaybackFile.close();
+    setVoiceStatus("WAV ERR");
+    return false;
+  }
+
+  M5Cardputer.Mic.end();
+  if (!voicePlaybackSpeakerReady)
+  {
+    M5Cardputer.Speaker.begin();
+    M5Cardputer.Speaker.setVolume(80);
+    voicePlaybackSpeakerReady = true;
+  }
+  voicePlaybackBytesRemaining = header.dataSize;
+  voicePlaybackBufferIndex = 0;
+  voicePlaying = true;
+  needsRedraw = true;
+  return true;
+}
+
+void updateVoicePlayback()
+{
+  if (!voicePlaying)
+  {
+    return;
+  }
+
+  if (voicePlaybackBytesRemaining == 0)
+  {
+    if (!M5Cardputer.Speaker.isPlaying(VOICE_PLAYBACK_CHANNEL))
+    {
+      stopVoiceMemoPlayback();
+    }
+    return;
+  }
+
+  if (M5Cardputer.Speaker.isPlaying(VOICE_PLAYBACK_CHANNEL) > 1)
+  {
+    return;
+  }
+
+  size_t bufferBytes = sizeof(voicePlaybackBuffers[voicePlaybackBufferIndex]);
+  size_t bytesToRead = voicePlaybackBytesRemaining < bufferBytes ? voicePlaybackBytesRemaining : bufferBytes;
+  size_t bytesRead = voicePlaybackFile.read(reinterpret_cast<uint8_t *>(voicePlaybackBuffers[voicePlaybackBufferIndex]), bytesToRead);
+  if (bytesRead == 0)
+  {
+    voicePlaybackBytesRemaining = 0;
+    return;
+  }
+
+  voicePlaybackBytesRemaining -= bytesRead;
+  M5Cardputer.Speaker.playRaw(voicePlaybackBuffers[voicePlaybackBufferIndex],
+                              bytesRead / sizeof(int16_t),
+                              VOICE_SAMPLE_RATE,
+                              false,
+                              1,
+                              VOICE_PLAYBACK_CHANNEL);
+  voicePlaybackBufferIndex = (voicePlaybackBufferIndex + 1) % VOICE_PLAYBACK_BUFFERS;
+}
+
+void updateVoiceStatus()
+{
+  if (voiceStatusText.length() > 0 && millis() >= voiceStatusUntilMs)
+  {
+    voiceStatusText = "";
+    needsRedraw = true;
+  }
 }
 
 String csvField(const String &line, uint8_t fieldIndex)
@@ -1038,7 +1447,7 @@ void updateTimer()
 
 void updatePowerSave()
 {
-  if (appState == STATE_RUNNING || appState == STATE_DONE)
+  if (appState == STATE_RUNNING || appState == STATE_DONE || voiceRecording)
   {
     setBrightness(BRIGHTNESS_NORMAL);
     return;
@@ -1351,6 +1760,57 @@ void drawStatsScreen()
   drawCenteredLabel(tr("DEL BACK", "DEL 戻る"), 120, MUTED_COLOR);
 }
 
+void drawVoiceMemoScreen()
+{
+  drawCenteredLabel(tr("VOICE MEMO", "ボイスメモ"), 4, TEXT_COLOR);
+
+  if (!sdAvailable)
+  {
+    drawCenteredLabel("NO SD", 58, MUTED_COLOR);
+    drawCenteredLabel(tr("DEL BACK", "DEL 戻る"), 120, MUTED_COLOR);
+    return;
+  }
+
+  if (voiceMemoCount == 0)
+  {
+    drawCenteredLabel(tr("NO MEMO", "メモなし"), 58, MUTED_COLOR);
+    drawCenteredLabel(tr("M HOLD REC", "M長押し録音"), 88, MUTED_COLOR);
+    drawCenteredLabel(tr("DEL BACK", "DEL 戻る"), 120, MUTED_COLOR);
+    return;
+  }
+
+  String countLine = String(selectedVoiceMemoIndex + 1) + "/" + String(voiceMemoCount);
+  drawCenteredLabel(countLine.c_str(), 28, MUTED_COLOR);
+  drawCenteredLabel(voiceMemoEntries[selectedVoiceMemoIndex].label.c_str(), 52, TEXT_COLOR);
+  uint32_t audioBytes = voiceMemoEntries[selectedVoiceMemoIndex].sizeBytes > sizeof(WavHeader)
+                            ? voiceMemoEntries[selectedVoiceMemoIndex].sizeBytes - sizeof(WavHeader)
+                            : 0;
+  uint32_t seconds = audioBytes / (VOICE_SAMPLE_RATE * 2);
+  if (audioBytes > 0 && seconds == 0)
+  {
+    seconds = 1;
+  }
+  drawCenteredLabel((String(seconds) + " sec").c_str(), 76, MUTED_COLOR);
+  drawCenteredLabel(voicePlaying ? tr("ENTER STOP", "ENTER 停止") : tr("ENTER PLAY", "ENTER 再生"), 100, MUTED_COLOR);
+  drawCenteredLabel(tr("Fn+; / Fn+/  DEL", "Fn+; / Fn+/  DEL"), 120, MUTED_COLOR);
+}
+
+void drawVoiceOverlay()
+{
+  if (voiceRecording)
+  {
+    screenCanvas.fillRect(196, 0, 44, 16, BACKGROUND_COLOR);
+    drawLabelAt("REC", 202, 0, DONE_COLOR);
+    return;
+  }
+
+  if (voiceStatusText.length() > 0 && millis() < voiceStatusUntilMs)
+  {
+    screenCanvas.fillRect(174, 0, 66, 16, BACKGROUND_COLOR);
+    drawLabelAt(voiceStatusText, 176, 0, MUTED_COLOR);
+  }
+}
+
 void drawScreen()
 {
   if (!needsRedraw)
@@ -1367,7 +1827,7 @@ void drawScreen()
     drawSegments(1.0f, false);
     drawCenteredText(formatTime(remainingSeconds), 34, 5, TEXT_COLOR);
     drawDeviceStatus(78, deviceStatusColor());
-    drawCenteredLabel(tr("START  1-5  0  S  L", "開始  1-5  0  S  L"), 102, MUTED_COLOR);
+    drawCenteredLabel(tr("START  1-5  0  S L V", "開始  1-5  0  S L V"), 102, MUTED_COLOR);
     if (!sdAvailable)
     {
       drawCenteredText("LOG OFF", 126, 1, MUTED_COLOR);
@@ -1424,6 +1884,10 @@ void drawScreen()
     drawStatsScreen();
     break;
 
+  case STATE_VOICE_MEMOS:
+    drawVoiceMemoScreen();
+    break;
+
   case STATE_LANGUAGE_SETTINGS:
     drawCenteredLabel(tr("Language", "言語の設定"), 10, TEXT_COLOR);
     drawLabelAt(settingsLabel(SETTINGS_LANG_JA, "1 Japanese", "1 日本語"), 62, 44,
@@ -1453,6 +1917,7 @@ void drawScreen()
     break;
   }
 
+  drawVoiceOverlay();
   screenCanvas.pushSprite(&M5Cardputer.Display, 0, 0);
 }
 
@@ -1501,6 +1966,25 @@ void handleKeyboard()
   wakeDisplay();
   Keyboard_Class::KeysState keys = M5Cardputer.Keyboard.keysState();
 
+  if (appState == STATE_VOICE_MEMOS)
+  {
+    SettingsDirection direction = settingsDirectionFromKeys(keys);
+    if (direction == SETTINGS_DIRECTION_LEFT && selectedVoiceMemoIndex > 0)
+    {
+      stopVoiceMemoPlayback();
+      selectedVoiceMemoIndex--;
+      needsRedraw = true;
+      return;
+    }
+    if (direction == SETTINGS_DIRECTION_RIGHT && selectedVoiceMemoIndex + 1 < voiceMemoCount)
+    {
+      stopVoiceMemoPlayback();
+      selectedVoiceMemoIndex++;
+      needsRedraw = true;
+      return;
+    }
+  }
+
   if (isSettingsState())
   {
     SettingsDirection direction = settingsDirectionFromKeys(keys);
@@ -1521,6 +2005,11 @@ void handleKeyboard()
 
   if (keys.del)
   {
+    if (appState == STATE_VOICE_MEMOS)
+    {
+      closeVoiceMemos();
+      return;
+    }
     if (appState == STATE_CONFIRM_RESET)
     {
       cancelResetConfirm();
@@ -1542,6 +2031,12 @@ void handleKeyboard()
 
   for (char key : keys.word)
   {
+    if ((key == 'v' || key == 'V') && appState != STATE_VOICE_MEMOS)
+    {
+      openVoiceMemos();
+      return;
+    }
+
     if (appState == STATE_READY)
     {
       if (key >= '1' && key <= '5')
@@ -1645,6 +2140,17 @@ void handleKeyboard()
   case STATE_STATS:
     break;
 
+  case STATE_VOICE_MEMOS:
+    if (voicePlaying)
+    {
+      stopVoiceMemoPlayback();
+    }
+    else
+    {
+      startVoiceMemoPlayback();
+    }
+    break;
+
   case STATE_LANGUAGE_SETTINGS:
   case STATE_VOLUME_SETTINGS:
     applySelectedSettingsItem();
@@ -1684,6 +2190,10 @@ void setup()
 void loop()
 {
   M5Cardputer.update();
+  updateVoiceMemoShortcut();
+  updateVoiceRecording();
+  updateVoicePlayback();
+  updateVoiceStatus();
   updateBackgroundTimeSync();
   handleKeyboard();
   updateTimer();

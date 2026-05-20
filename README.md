@@ -52,6 +52,8 @@ Wi-Fi and NTP are optional background helpers. The timer remains usable even if 
 - `0`: enter a custom minute value
 - `S`: open settings
 - `L`: open stats
+- `V`: open voice memos
+- Hold `M`: record a voice memo from any screen
 
 ### Custom Input
 
@@ -100,6 +102,20 @@ Press `L` to show stats from `study_log.csv` on the SD card.
 - simple 7-day bars
 
 Stats wait for time sync and an available SD card.
+
+### Voice Memos
+
+Hold `M` to record a voice memo from the built-in microphone. Recording does not stop the timer. Voice memos are saved as WAV files under `/voice_memos/` on the SD card.
+
+- Hold `M`: record
+- Release `M`: save
+- `V`: open voice memo list
+- `Fn + ;`: previous memo
+- `Fn + /`: next memo
+- `Enter`: play or stop
+- `Del`: return
+
+Synced devices use timestamp filenames. Unsynced devices use sequential filenames.
 
 ## Configuration
 
