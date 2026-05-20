@@ -68,7 +68,7 @@ Wi-Fi and NTP are optional background helpers. The timer remains usable even if 
 
 ### Settings
 
-Press `S` to open Language, then use `Fn + /` and `Fn + ;` to switch between Language, Volume, and Mode in page order.
+Press `S` to open Language, then use `fn + /` and `fn + ;` to switch between Language, Volume, and Mode in page order.
 
 Language:
 
@@ -90,10 +90,10 @@ The default mode is Simple. CSV logging and time sync continue in the background
 
 Controls:
 
-- `Fn + ;`: previous settings page
-- `Fn + ,`: move selection down
-- `Fn + .`: move selection up
-- `Fn + /`: next settings page
+- `fn + ;`: previous settings page
+- `fn + ,`: move selection down
+- `fn + .`: move selection up
+- `fn + /`: next settings page
 - `Enter`: apply selected item
 - `Del`: return to Ready
 
@@ -117,8 +117,8 @@ In Rich mode, hold `M` to record a voice memo from the built-in microphone. Reco
 - Hold `M`: record
 - Release `M`: save
 - `V`: open voice memo list
-- `Fn + ;`: previous memo
-- `Fn + /`: next memo
+- `fn + ;`: previous memo
+- `fn + /`: next memo
 - `Enter`: play or stop
 - `Del`: return
 
