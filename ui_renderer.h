@@ -46,7 +46,11 @@ void drawCenteredHotkeyLabel(const char *text, int y)
   screenCanvas.setTextSize(1);
   screenCanvas.setTextColor(MUTED_COLOR, BACKGROUND_COLOR);
   int totalWidth = screenCanvas.textWidth(fullText);
-  int startX = max(0, (screenCanvas.width() - totalWidth) / 2);
+  int startX = static_cast<int>((screenCanvas.width() - totalWidth) / 2);
+  if (startX < 0)
+  {
+    startX = 0;
+  }
   screenCanvas.setCursor(startX, y);
   screenCanvas.print(fullText);
 
@@ -62,7 +66,7 @@ void drawCenteredHotkeyLabel(const char *text, int y)
     }
 
     String prefix = fullText.substring(0, i);
-    String token = String(c);
+    char token[2] = {c, '\0'};
     int tokenX = startX + screenCanvas.textWidth(prefix);
     screenCanvas.setTextColor(hotkeyColor, BACKGROUND_COLOR);
     screenCanvas.setCursor(tokenX, y);
