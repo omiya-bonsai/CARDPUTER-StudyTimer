@@ -157,6 +157,8 @@ struct __attribute__((packed)) WavHeader
 };
 
 const uint32_t DEFAULT_TIMER_SECONDS = static_cast<uint32_t>(TIMER_DEFAULT_MINUTES) * 60UL;
+const uint16_t MIN_TIMER_MINUTES = TIMER_MIN_MINUTES;
+const uint16_t MAX_TIMER_MINUTES = TIMER_MAX_MINUTES;
 const uint16_t PRESET_MINUTES[] = {
     TIMER_PRESET_1_MINUTES,
     TIMER_PRESET_2_MINUTES,
