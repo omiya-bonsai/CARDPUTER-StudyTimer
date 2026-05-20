@@ -51,6 +51,7 @@ Wi-Fi and NTP are optional background helpers. The timer remains usable even if 
 - `1` to `5`: start a preset
 - `0`: enter a custom minute value
 - `S`: open settings
+- `L`: open stats
 
 ### Custom Input
 
@@ -65,11 +66,21 @@ Wi-Fi and NTP are optional background helpers. The timer remains usable even if 
 
 ### Settings
 
+Press `S` to open Language, then use `Fn + /` and `Fn + ;` to switch between Language and Volume.
+
+Language:
+
 - `1`: Japanese
 - `2`: English
-- `3`: Quiet
-- `4`: Normal
-- `5`: Loud
+
+Volume:
+
+- `1`: Quiet
+- `2`: Normal
+- `3`: Loud
+
+Controls:
+
 - `Fn + ;`: move left
 - `Fn + ,`: move down
 - `Fn + .`: move up
@@ -78,6 +89,17 @@ Wi-Fi and NTP are optional background helpers. The timer remains usable even if 
 - `Del`: return to Ready
 
 ![Settings screen](images/settings.jpeg)
+
+### Stats
+
+Press `L` to show stats from `study_log.csv` on the SD card.
+
+- today's total
+- last 7 days total
+- streak days
+- simple 7-day bars
+
+Stats wait for time sync and an available SD card.
 
 ## Configuration
 

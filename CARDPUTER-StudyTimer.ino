@@ -50,7 +50,9 @@ enum AppState
   STATE_RUNNING,
   STATE_PAUSED,
   STATE_DONE,
-  STATE_SETTINGS,
+  STATE_STATS,
+  STATE_LANGUAGE_SETTINGS,
+  STATE_VOLUME_SETTINGS,
   STATE_CONFIRM_RESET
 };
 
@@ -99,6 +101,16 @@ struct LogTimeFields
   bool synced;
 };
 
+struct StudyStats
+{
+  bool sdReady;
+  bool timeReady;
+  uint16_t todayMinutes;
+  uint16_t lastSevenDaysMinutes;
+  uint8_t streakDays;
+  uint16_t dayMinutes[7];
+};
+
 const uint32_t DEFAULT_TIMER_SECONDS = 25UL * 60UL;
 const uint16_t MIN_TIMER_MINUTES = 1;
 const uint16_t MAX_TIMER_MINUTES = 99;
@@ -144,12 +156,14 @@ const uint16_t SEGMENT_OFF_COLOR = 0x18E3;
 const uint16_t SEGMENT_DIM_COLOR = 0x4208;
 const uint16_t LOW_BATTERY_COLOR = TFT_RED;
 const uint8_t LOW_BATTERY_THRESHOLD_PERCENT = 20;
-const SettingsItemPosition SETTINGS_ITEM_POSITIONS[] = {
-    {SETTINGS_LANG_JA, 82, 50},
-    {SETTINGS_LANG_EN, 176, 50},
-    {SETTINGS_SOUND_QUIET, 56, 86},
-    {SETTINGS_SOUND_NORMAL, 166, 86},
-    {SETTINGS_SOUND_LOUD, 120, 108},
+const SettingsItemPosition LANGUAGE_SETTINGS_ITEM_POSITIONS[] = {
+    {SETTINGS_LANG_JA, 120, 52},
+    {SETTINGS_LANG_EN, 120, 80},
+};
+const SettingsItemPosition VOLUME_SETTINGS_ITEM_POSITIONS[] = {
+    {SETTINGS_SOUND_QUIET, 120, 52},
+    {SETTINGS_SOUND_NORMAL, 120, 76},
+    {SETTINGS_SOUND_LOUD, 120, 100},
 };
 
 AppState appState = STATE_READY;
@@ -470,6 +484,123 @@ LogTimeFields currentLogTimeFields()
   return fields;
 }
 
+String currentDateString()
+{
+  LogTimeFields fields = currentLogTimeFields();
+  return fields.date;
+}
+
+String csvField(const String &line, uint8_t fieldIndex)
+{
+  int start = 0;
+  for (uint8_t index = 0; index < fieldIndex; index++)
+  {
+    start = line.indexOf(',', start);
+    if (start < 0)
+    {
+      return "";
+    }
+    start++;
+  }
+
+  int end = line.indexOf(',', start);
+  if (end < 0)
+  {
+    end = line.length();
+  }
+  return line.substring(start, end);
+}
+
+int32_t daySerialFromDate(const String &date)
+{
+  if (date.length() < 10)
+  {
+    return -1;
+  }
+
+  struct tm dateInfo = {};
+  dateInfo.tm_year = date.substring(0, 4).toInt() - 1900;
+  dateInfo.tm_mon = date.substring(5, 7).toInt() - 1;
+  dateInfo.tm_mday = date.substring(8, 10).toInt();
+  dateInfo.tm_hour = 12;
+
+  time_t timestamp = mktime(&dateInfo);
+  if (timestamp < 0)
+  {
+    return -1;
+  }
+  return timestamp / 86400;
+}
+
+StudyStats calculateStudyStats()
+{
+  StudyStats stats = {sdAvailable, false, 0, 0, 0, {0, 0, 0, 0, 0, 0, 0}};
+  if (!sdAvailable || !SD.exists(LOG_FILENAME))
+  {
+    return stats;
+  }
+
+  String today = currentDateString();
+  int32_t todaySerial = daySerialFromDate(today);
+  if (todaySerial < 0)
+  {
+    return stats;
+  }
+  stats.timeReady = true;
+
+  File file = SD.open(LOG_FILENAME, FILE_READ);
+  if (!file)
+  {
+    stats.sdReady = false;
+    sdAvailable = false;
+    return stats;
+  }
+
+  while (file.available())
+  {
+    String line = file.readStringUntil('\n');
+    line.trim();
+    if (line.length() == 0 || line.startsWith("date,"))
+    {
+      continue;
+    }
+
+    String completed = csvField(line, 4);
+    if (completed != "1")
+    {
+      continue;
+    }
+
+    int32_t logSerial = daySerialFromDate(csvField(line, 0));
+    int32_t dayOffset = todaySerial - logSerial;
+    if (dayOffset < 0 || dayOffset >= 7)
+    {
+      continue;
+    }
+
+    uint16_t minutes = csvField(line, 3).toInt();
+    stats.dayMinutes[6 - dayOffset] += minutes;
+    stats.lastSevenDaysMinutes += minutes;
+    if (dayOffset == 0)
+    {
+      stats.todayMinutes += minutes;
+    }
+  }
+  file.close();
+
+  int8_t streakIndex = stats.dayMinutes[6] > 0 ? 6 : 5;
+  for (; streakIndex >= 0; streakIndex--)
+  {
+    if (stats.dayMinutes[streakIndex] == 0)
+    {
+      break;
+    }
+    stats.streakDays++;
+  }
+
+  return stats;
+}
+
 String normalizedInputType()
 {
   if (activeTimerSource == "custom")
@@ -645,7 +776,7 @@ void setLanguage(UiLanguage language)
   currentLanguage = language;
   saveLanguage();
   beep(1000, 35);
-  setState(STATE_SETTINGS);
+  setState(STATE_LANGUAGE_SETTINGS);
 }
 
 void setSoundMode(SoundMode mode)
@@ -653,7 +784,7 @@ void setSoundMode(SoundMode mode)
   currentSoundMode = mode;
   saveSoundMode();
   beep(1000, 35);
-  setState(STATE_SETTINGS);
+  setState(STATE_VOLUME_SETTINGS);
 }
 
 void applySelectedSettingsItem()
@@ -682,10 +813,49 @@ void applySelectedSettingsItem()
   }
 }
 
+bool isSettingsState()
+{
+  return appState == STATE_LANGUAGE_SETTINGS || appState == STATE_VOLUME_SETTINGS;
+}
+
+void openLanguageSettings()
+{
+  selectedSettingsItem = currentLanguage == LANG_EN ? SETTINGS_LANG_EN : SETTINGS_LANG_JA;
+  setState(STATE_LANGUAGE_SETTINGS);
+}
+
+void openVolumeSettings()
+{
+  switch (currentSoundMode)
+  {
+  case SOUND_QUIET:
+    selectedSettingsItem = SETTINGS_SOUND_QUIET;
+    break;
+
+  case SOUND_NORMAL:
+    selectedSettingsItem = SETTINGS_SOUND_NORMAL;
+    break;
+
+  case SOUND_LOUD:
+    selectedSettingsItem = SETTINGS_SOUND_LOUD;
+    break;
+  }
+  setState(STATE_VOLUME_SETTINGS);
+}
+
 const SettingsItemPosition *currentSettingsItemPosition()
 {
-  for (const auto &position : SETTINGS_ITEM_POSITIONS)
+  const SettingsItemPosition *positions = LANGUAGE_SETTINGS_ITEM_POSITIONS;
+  uint8_t positionCount = sizeof(LANGUAGE_SETTINGS_ITEM_POSITIONS) / sizeof(LANGUAGE_SETTINGS_ITEM_POSITIONS[0]);
+  if (appState == STATE_VOLUME_SETTINGS)
   {
+    positions = VOLUME_SETTINGS_ITEM_POSITIONS;
+    positionCount = sizeof(VOLUME_SETTINGS_ITEM_POSITIONS) / sizeof(VOLUME_SETTINGS_ITEM_POSITIONS[0]);
+  }
+
+  for (uint8_t index = 0; index < positionCount; index++)
+  {
+    const SettingsItemPosition &position = positions[index];
     if (position.item == selectedSettingsItem)
     {
       return &position;
@@ -741,19 +911,28 @@ int settingsMoveScore(const SettingsItemPosition &current,
   return dy * dy + dx * dx * 4;
 }
 
-void moveSettingsSelection(SettingsDirection direction)
+bool moveSettingsSelection(SettingsDirection direction)
 {
   const SettingsItemPosition *current = currentSettingsItemPosition();
   if (direction == SETTINGS_DIRECTION_NONE || current == nullptr)
   {
-    return;
+    return false;
+  }
+
+  const SettingsItemPosition *positions = LANGUAGE_SETTINGS_ITEM_POSITIONS;
+  uint8_t positionCount = sizeof(LANGUAGE_SETTINGS_ITEM_POSITIONS) / sizeof(LANGUAGE_SETTINGS_ITEM_POSITIONS[0]);
+  if (appState == STATE_VOLUME_SETTINGS)
+  {
+    positions = VOLUME_SETTINGS_ITEM_POSITIONS;
+    positionCount = sizeof(VOLUME_SETTINGS_ITEM_POSITIONS) / sizeof(VOLUME_SETTINGS_ITEM_POSITIONS[0]);
   }
 
   bool found = false;
   SettingsItem nextItem = selectedSettingsItem;
   int bestScore = 0;
-  for (const auto &candidate : SETTINGS_ITEM_POSITIONS)
+  for (uint8_t index = 0; index < positionCount; index++)
   {
+    const SettingsItemPosition &candidate = positions[index];
     if (candidate.item == selectedSettingsItem ||
         !settingsItemIsInDirection(*current, candidate, direction))
     {
@@ -773,7 +952,10 @@ void moveSettingsSelection(SettingsDirection direction)
   {
     selectedSettingsItem = nextItem;
     needsRedraw = true;
+    return true;
   }
+
+  return false;
 }
 
 void enterCustomInput()
@@ -1110,6 +1292,65 @@ uint16_t settingsItemColor(SettingsItem item, bool active)
   return MUTED_COLOR;
 }
 
+void drawStatsBars(const StudyStats &stats)
+{
+  uint16_t maxMinutes = 1;
+  for (uint8_t index = 0; index < 7; index++)
+  {
+    if (stats.dayMinutes[index] > maxMinutes)
+    {
+      maxMinutes = stats.dayMinutes[index];
+    }
+  }
+
+  const int barWidth = 20;
+  const int barGap = 6;
+  const int baseX = 30;
+  const int baseY = 112;
+  const int maxHeight = 32;
+  for (uint8_t index = 0; index < 7; index++)
+  {
+    int barHeight = (stats.dayMinutes[index] * maxHeight) / maxMinutes;
+    if (stats.dayMinutes[index] > 0 && barHeight < 2)
+    {
+      barHeight = 2;
+    }
+    int x = baseX + index * (barWidth + barGap);
+    screenCanvas.drawRect(x, baseY - maxHeight, barWidth, maxHeight, MUTED_COLOR);
+    screenCanvas.fillRect(x + 2, baseY - barHeight, barWidth - 4, barHeight, TEXT_COLOR);
+  }
+}
+
+void drawStatsScreen()
+{
+  StudyStats stats = calculateStudyStats();
+  drawCenteredLabel(tr("LOG", "記録"), 4, TEXT_COLOR);
+
+  if (!stats.sdReady)
+  {
+    drawCenteredLabel("NO LOG", 58, MUTED_COLOR);
+    drawCenteredLabel(tr("DEL BACK", "DEL 戻る"), 120, MUTED_COLOR);
+    return;
+  }
+
+  if (!stats.timeReady)
+  {
+    drawCenteredLabel("TIME OFF", 48, MUTED_COLOR);
+    drawCenteredLabel(tr("SYNC NEEDED", "時刻同期待ち"), 76, MUTED_COLOR);
+    drawCenteredLabel(tr("DEL BACK", "DEL 戻る"), 120, MUTED_COLOR);
+    return;
+  }
+
+  drawLabelAt(tr("TODAY", "今日"), 12, 28, MUTED_COLOR);
+  drawLabelAt(String(stats.todayMinutes) + "m", 88, 28, TEXT_COLOR);
+  drawLabelAt(tr("7 DAYS", "7日間"), 12, 50, MUTED_COLOR);
+  drawLabelAt(String(stats.lastSevenDaysMinutes) + "m", 88, 50, TEXT_COLOR);
+  drawLabelAt(tr("STREAK", "連続"), 150, 28, MUTED_COLOR);
+  drawLabelAt(String(stats.streakDays) + "d", 150, 50, TEXT_COLOR);
+  drawStatsBars(stats);
+  drawCenteredLabel(tr("DEL BACK", "DEL 戻る"), 120, MUTED_COLOR);
+}
+
 void drawScreen()
 {
   if (!needsRedraw)
@@ -1126,7 +1367,7 @@ void drawScreen()
     drawSegments(1.0f, false);
     drawCenteredText(formatTime(remainingSeconds), 34, 5, TEXT_COLOR);
     drawDeviceStatus(78, deviceStatusColor());
-    drawCenteredLabel(tr("START  1-5  0  S", "開始  1-5  0  S"), 102, MUTED_COLOR);
+    drawCenteredLabel(tr("START  1-5  0  S  L", "開始  1-5  0  S  L"), 102, MUTED_COLOR);
     if (!sdAvailable)
     {
       drawCenteredText("LOG OFF", 126, 1, MUTED_COLOR);
@@ -1163,20 +1404,44 @@ void drawScreen()
   case STATE_DONE:
     drawSegments(0.0f, false);
     drawCenteredLabel(tr("DONE", "完了"), 42, DONE_COLOR);
-    drawCenteredLabel(lastLogSaved ? tr("SAVED", "保存") : "LOG OFF", 98, MUTED_COLOR);
+    if (lastLogSaved)
+    {
+      StudyStats stats = calculateStudyStats();
+      drawCenteredLabel(tr("SAVED", "保存"), 88, MUTED_COLOR);
+      if (stats.timeReady)
+      {
+        String todayLine = String(tr("Today ", "今日 ")) + String(stats.todayMinutes) + "m";
+        drawCenteredLabel(todayLine.c_str(), 108, MUTED_COLOR);
+      }
+    }
+    else
+    {
+      drawCenteredLabel("LOG OFF", 98, MUTED_COLOR);
+    }
     break;
 
-  case STATE_SETTINGS:
-    drawCenteredLabel(tr("SETTINGS", "設定"), 12, TEXT_COLOR);
-    drawLabelAt(settingsLabel(SETTINGS_LANG_JA, "1 Japanese", "1 日本語"), 34, 42,
+  case STATE_STATS:
+    drawStatsScreen();
+    break;
+
+  case STATE_LANGUAGE_SETTINGS:
+    drawCenteredLabel(tr("Language", "言語の設定"), 10, TEXT_COLOR);
+    drawLabelAt(settingsLabel(SETTINGS_LANG_JA, "1 Japanese", "1 日本語"), 62, 44,
                 settingsItemColor(SETTINGS_LANG_JA, currentLanguage == LANG_JA));
-    drawLabelAt(settingsLabel(SETTINGS_LANG_EN, "2 English", "2 English"), 132, 42,
+    drawLabelAt(settingsLabel(SETTINGS_LANG_EN, "2 English", "2 English"), 62, 72,
                 settingsItemColor(SETTINGS_LANG_EN, currentLanguage == LANG_EN));
-    drawLabelAt(settingsLabel(SETTINGS_SOUND_QUIET, "3 Quiet", "3 静音"), 8, 76,
+    drawCenteredLabel(tr("NEXT: Fn+/", "次: Fn+/"), 96, MUTED_COLOR);
+    drawCenteredLabel(tr("DEL BACK", "DEL 戻る"), 120, MUTED_COLOR);
+    break;
+
+  case STATE_VOLUME_SETTINGS:
+    drawCenteredLabel(tr("Volume", "音量の設定"), 4, TEXT_COLOR);
+    drawCenteredLabel(tr("PREV: Fn+;", "前: Fn+;"), 24, MUTED_COLOR);
+    drawLabelAt(settingsLabel(SETTINGS_SOUND_QUIET, "1 Quiet", "1 静音"), 62, 44,
                 settingsItemColor(SETTINGS_SOUND_QUIET, currentSoundMode == SOUND_QUIET));
-    drawLabelAt(settingsLabel(SETTINGS_SOUND_NORMAL, "4 Normal", "4 普通の音"), 118, 76,
+    drawLabelAt(settingsLabel(SETTINGS_SOUND_NORMAL, "2 Normal", "2 普通の音"), 62, 68,
                 settingsItemColor(SETTINGS_SOUND_NORMAL, currentSoundMode == SOUND_NORMAL));
-    drawLabelAt(settingsLabel(SETTINGS_SOUND_LOUD, "5 Loud", "5 うるさい"), 74, 98,
+    drawLabelAt(settingsLabel(SETTINGS_SOUND_LOUD, "3 Loud", "3 うるさい"), 62, 96,
                 settingsItemColor(SETTINGS_SOUND_LOUD, currentSoundMode == SOUND_LOUD));
     drawCenteredLabel(tr("DEL BACK", "DEL 戻る"), 120, MUTED_COLOR);
     break;
@@ -1236,12 +1501,20 @@ void handleKeyboard()
   wakeDisplay();
   Keyboard_Class::KeysState keys = M5Cardputer.Keyboard.keysState();
 
-  if (appState == STATE_SETTINGS)
+  if (isSettingsState())
   {
     SettingsDirection direction = settingsDirectionFromKeys(keys);
     if (direction != SETTINGS_DIRECTION_NONE)
     {
-      moveSettingsSelection(direction);
+      bool moved = moveSettingsSelection(direction);
+      if (!moved && appState == STATE_LANGUAGE_SETTINGS && direction == SETTINGS_DIRECTION_RIGHT)
+      {
+        openVolumeSettings();
+      }
+      if (!moved && appState == STATE_VOLUME_SETTINGS && direction == SETTINGS_DIRECTION_LEFT)
+      {
+        openLanguageSettings();
+      }
       return;
     }
   }
@@ -1283,7 +1556,12 @@ void handleKeyboard()
       }
       if (key == 's' || key == 'S')
       {
-        setState(STATE_SETTINGS);
+        openLanguageSettings();
+        return;
+      }
+      if (key == 'l' || key == 'L')
+      {
+        setState(STATE_STATS);
         return;
       }
     }
@@ -1294,7 +1572,7 @@ void handleKeyboard()
       return;
     }
 
-    if (appState == STATE_SETTINGS)
+    if (appState == STATE_LANGUAGE_SETTINGS)
     {
       if (key == '1')
       {
@@ -1308,19 +1586,23 @@ void handleKeyboard()
         setLanguage(LANG_EN);
         return;
       }
-      if (key == '3')
+    }
+
+    if (appState == STATE_VOLUME_SETTINGS)
+    {
+      if (key == '1')
       {
         selectedSettingsItem = SETTINGS_SOUND_QUIET;
         setSoundMode(SOUND_QUIET);
         return;
       }
-      if (key == '4')
+      if (key == '2')
       {
         selectedSettingsItem = SETTINGS_SOUND_NORMAL;
         setSoundMode(SOUND_NORMAL);
         return;
       }
-      if (key == '5')
+      if (key == '3')
       {
         selectedSettingsItem = SETTINGS_SOUND_LOUD;
         setSoundMode(SOUND_LOUD);
@@ -1360,7 +1642,11 @@ void handleKeyboard()
     resetToReady();
     break;
 
-  case STATE_SETTINGS:
+  case STATE_STATS:
+    break;
+
+  case STATE_LANGUAGE_SETTINGS:
+  case STATE_VOLUME_SETTINGS:
     applySelectedSettingsItem();
     break;
 
