@@ -38,6 +38,39 @@ void drawLabelAt(const String &text, int x, int y, uint16_t color)
   screenCanvas.setTextFont(1);
 }
 
+void drawCenteredHotkeyLabel(const char *text, int y)
+{
+  const uint16_t hotkeyColor = 0xFD20; // Orange
+  String fullText = String(text);
+  screenCanvas.setFont(&fonts::lgfxJapanGothic_16);
+  screenCanvas.setTextSize(1);
+  screenCanvas.setTextColor(MUTED_COLOR, BACKGROUND_COLOR);
+  int totalWidth = screenCanvas.textWidth(fullText);
+  int startX = max(0, (screenCanvas.width() - totalWidth) / 2);
+  screenCanvas.setCursor(startX, y);
+  screenCanvas.print(fullText);
+
+  for (int i = 0; text[i] != '\0'; i++)
+  {
+    char c = text[i];
+    bool isHotkeyChar = (c == 'f' || c == 'n' ||
+                         c == ';' || c == ',' ||
+                         c == '.' || c == '/');
+    if (!isHotkeyChar)
+    {
+      continue;
+    }
+
+    String prefix = fullText.substring(0, i);
+    String token = String(c);
+    int tokenX = startX + screenCanvas.textWidth(prefix);
+    screenCanvas.setTextColor(hotkeyColor, BACKGROUND_COLOR);
+    screenCanvas.setCursor(tokenX, y);
+    screenCanvas.print(token);
+  }
+  screenCanvas.setTextFont(1);
+}
+
 void drawTimerMeta(int y, uint16_t color)
 {
   drawCenteredLabel(timerMetaText().c_str(), y, color);
@@ -383,12 +416,12 @@ void drawScreen()
     drawCenteredLabel(tr("Language", "言語の設定"), 10, TEXT_COLOR);
     drawLabelAt(settingsLabel(SETTINGS_LANG_JA, "1 Japanese", "1 日本語"), 62, 44, settingsItemColor(SETTINGS_LANG_JA, currentLanguage == LANG_JA));
     drawLabelAt(settingsLabel(SETTINGS_LANG_EN, "2 English", "2 English"), 62, 72, settingsItemColor(SETTINGS_LANG_EN, currentLanguage == LANG_EN));
-    drawCenteredLabel(tr("NEXT: fn+/", "次: fn+/"), 96, MUTED_COLOR);
+    drawCenteredHotkeyLabel(tr("NEXT: fn+/", "次: fn+/"), 96);
     drawCenteredLabel(tr("DEL BACK", "DEL 戻る"), 120, MUTED_COLOR);
     break;
   case STATE_VOLUME_SETTINGS:
     drawCenteredLabel(tr("Volume", "音量の設定"), 4, TEXT_COLOR);
-    drawCenteredLabel(tr("PREV fn+,  NEXT fn+/", "前 fn+,  次 fn+/"), 24, MUTED_COLOR);
+    drawCenteredHotkeyLabel(tr("PREV fn+,  NEXT fn+/", "前 fn+,  次 fn+/"), 24);
     drawLabelAt(settingsLabel(SETTINGS_SOUND_QUIET, "1 Quiet", "1 静音"), 62, 44, settingsItemColor(SETTINGS_SOUND_QUIET, currentSoundMode == SOUND_QUIET));
     drawLabelAt(settingsLabel(SETTINGS_SOUND_NORMAL, "2 Normal", "2 普通の音"), 62, 68, settingsItemColor(SETTINGS_SOUND_NORMAL, currentSoundMode == SOUND_NORMAL));
     drawLabelAt(settingsLabel(SETTINGS_SOUND_LOUD, "3 Loud", "3 うるさい"), 62, 96, settingsItemColor(SETTINGS_SOUND_LOUD, currentSoundMode == SOUND_LOUD));
@@ -396,7 +429,7 @@ void drawScreen()
     break;
   case STATE_MODE_SETTINGS:
     drawCenteredLabel(tr("Mode", "モード"), 10, TEXT_COLOR);
-    drawCenteredLabel(tr("PREV: fn+,", "前: fn+,"), 28, MUTED_COLOR);
+    drawCenteredHotkeyLabel(tr("PREV: fn+,", "前: fn+,"), 28);
     drawLabelAt(settingsLabel(SETTINGS_MODE_SIMPLE, "1 Simple", "1 シンプル"), 62, 52, settingsItemColor(SETTINGS_MODE_SIMPLE, currentFeatureMode == MODE_SIMPLE));
     drawLabelAt(settingsLabel(SETTINGS_MODE_RICH, "2 Rich", "2 リッチ"), 62, 80, settingsItemColor(SETTINGS_MODE_RICH, currentFeatureMode == MODE_RICH));
     drawCenteredLabel(tr("DEL BACK", "DEL 戻る"), 120, MUTED_COLOR);
