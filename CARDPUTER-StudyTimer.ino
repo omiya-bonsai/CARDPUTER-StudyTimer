@@ -156,10 +156,14 @@ struct __attribute__((packed)) WavHeader
   uint32_t dataSize;
 };
 
-const uint32_t DEFAULT_TIMER_SECONDS = 25UL * 60UL;
-const uint16_t MIN_TIMER_MINUTES = 1;
-const uint16_t MAX_TIMER_MINUTES = 99;
-const uint16_t PRESET_MINUTES[] = {5, 10, 15, 25, 45};
+const uint32_t DEFAULT_TIMER_SECONDS = static_cast<uint32_t>(TIMER_DEFAULT_MINUTES) * 60UL;
+const uint16_t PRESET_MINUTES[] = {
+    TIMER_PRESET_1_MINUTES,
+    TIMER_PRESET_2_MINUTES,
+    TIMER_PRESET_3_MINUTES,
+    TIMER_PRESET_4_MINUTES,
+    TIMER_PRESET_5_MINUTES,
+};
 const char *PREF_NAMESPACE = "study_timer";
 const char *PREF_LAST_MINUTES = "last_minutes";
 const char *PREF_LANGUAGE = "language";
@@ -173,16 +177,6 @@ const uint8_t SD_SPI_SCK_PIN = 40;
 const uint8_t SD_SPI_MOSI_PIN = 14;
 const uint8_t SD_SPI_MISO_PIN = 39;
 const uint8_t SD_SPI_CS_PIN = 12;
-const uint32_t WIFI_RETRY_INTERVAL_MS = 30000;
-const uint32_t NTP_RETRY_INTERVAL_MS = 5000;
-const uint32_t NTP_RECONFIG_INTERVAL_MS = 30000;
-const uint32_t CUSTOM_INPUT_TIMEOUT_MS = 7000;
-const uint32_t DONE_RETURN_MS = 3000;
-const uint32_t DIM_AFTER_MS = 30000;
-const uint32_t DEEP_DIM_AFTER_MS = 120000;
-const uint8_t BRIGHTNESS_NORMAL = 96;
-const uint8_t BRIGHTNESS_DIM = 40;
-const uint8_t BRIGHTNESS_DEEP_DIM = 12;
 const uint8_t TOP_SEGMENTS = 15;
 const uint8_t SIDE_SEGMENTS = 6;
 const uint8_t TOTAL_SEGMENTS = (TOP_SEGMENTS * 2) + (SIDE_SEGMENTS * 2);
@@ -205,15 +199,6 @@ const uint16_t DONE_COLOR = TFT_GREEN;
 const uint16_t SEGMENT_OFF_COLOR = 0x18E3;
 const uint16_t SEGMENT_DIM_COLOR = 0x4208;
 const uint16_t LOW_BATTERY_COLOR = TFT_RED;
-const uint8_t LOW_BATTERY_THRESHOLD_PERCENT = 20;
-const uint8_t LOW_BATTERY_RELEASE_PERCENT = 23;
-const uint8_t BATTERY_DISPLAY_HYSTERESIS_PERCENT = 2;
-const uint32_t VOICE_SAMPLE_RATE = 8000;
-const uint16_t VOICE_RECORD_SAMPLES = 256;
-const uint16_t VOICE_PLAYBACK_SAMPLES = 512;
-const uint8_t VOICE_PLAYBACK_BUFFERS = 3;
-const uint8_t VOICE_MEMO_MAX_ENTRIES = 50;
-const uint8_t VOICE_PLAYBACK_CHANNEL = 0;
 const SettingsItemPosition LANGUAGE_SETTINGS_ITEM_POSITIONS[] = {
     {SETTINGS_LANG_JA, 120, 52},
     {SETTINGS_LANG_EN, 120, 80},
@@ -326,7 +311,7 @@ void setup()
   M5Cardputer.Display.setTextDatum(TL_DATUM);
   M5Cardputer.Display.setTextFont(1);
   M5Cardputer.Display.setBrightness(BRIGHTNESS_NORMAL);
-  M5Cardputer.Speaker.setVolume(80);
+  M5Cardputer.Speaker.setVolume(SPEAKER_DEFAULT_VOLUME);
   screenCanvas.setColorDepth(16);
   screenCanvas.createSprite(M5Cardputer.Display.width(), M5Cardputer.Display.height());
   screenCanvas.setTextDatum(TL_DATUM);

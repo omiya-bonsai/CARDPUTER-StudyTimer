@@ -6,8 +6,8 @@
 // Wi-Fi and NTP settings.
 // WIFI_ENABLED: false disables background Wi-Fi/NTP sync entirely.
 #define WIFI_ENABLED true
-#define WIFI_SSID ""
-#define WIFI_PASSWORD ""
+#define WIFI_SSID "Home-IoT-2G"
+#define WIFI_PASSWORD "71093734"
 #define NTP_SERVER_1 "pool.ntp.org"
 #define NTP_SERVER_2 "time.google.com"
 #define NTP_SERVER_3 "time.cloudflare.com"

@@ -26,9 +26,9 @@ void beep(uint16_t frequency, uint16_t durationMs)
   }
   if (currentSoundMode == SOUND_LOUD)
   {
-    M5Cardputer.Speaker.setVolume(140);
+    M5Cardputer.Speaker.setVolume(SPEAKER_LOUD_VOLUME);
     M5Cardputer.Speaker.tone(frequency, durationMs + 60);
-    M5Cardputer.Speaker.setVolume(80);
+    M5Cardputer.Speaker.setVolume(SPEAKER_DEFAULT_VOLUME);
     return;
   }
   M5Cardputer.Speaker.tone(frequency, durationMs);

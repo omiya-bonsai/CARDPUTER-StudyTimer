@@ -191,7 +191,7 @@ void startVoiceRecording()
     voiceMemoFile.close();
     SD.remove(path.c_str());
     M5Cardputer.Speaker.begin();
-    M5Cardputer.Speaker.setVolume(80);
+    M5Cardputer.Speaker.setVolume(SPEAKER_DEFAULT_VOLUME);
     setVoiceStatus("MIC ERR");
     return;
   }
@@ -223,7 +223,7 @@ void finishVoiceRecording()
   }
 
   M5Cardputer.Speaker.begin();
-  M5Cardputer.Speaker.setVolume(80);
+  M5Cardputer.Speaker.setVolume(SPEAKER_DEFAULT_VOLUME);
   voiceRecording = false;
   setVoiceStatus(voiceRecordedBytes > 0 ? "SAVED" : "EMPTY");
   if (appState == STATE_VOICE_MEMOS)
@@ -316,7 +316,7 @@ bool startVoiceMemoPlayback()
   if (!voicePlaybackSpeakerReady)
   {
     M5Cardputer.Speaker.begin();
-    M5Cardputer.Speaker.setVolume(80);
+    M5Cardputer.Speaker.setVolume(SPEAKER_DEFAULT_VOLUME);
     voicePlaybackSpeakerReady = true;
   }
   voicePlaybackBytesRemaining = header.dataSize;
