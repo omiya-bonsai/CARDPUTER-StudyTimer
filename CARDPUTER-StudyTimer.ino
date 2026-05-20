@@ -206,6 +206,8 @@ const uint16_t SEGMENT_OFF_COLOR = 0x18E3;
 const uint16_t SEGMENT_DIM_COLOR = 0x4208;
 const uint16_t LOW_BATTERY_COLOR = TFT_RED;
 const uint8_t LOW_BATTERY_THRESHOLD_PERCENT = 20;
+const uint8_t LOW_BATTERY_RELEASE_PERCENT = 23;
+const uint8_t BATTERY_DISPLAY_HYSTERESIS_PERCENT = 2;
 const uint32_t VOICE_SAMPLE_RATE = 8000;
 const uint16_t VOICE_RECORD_SAMPLES = 256;
 const uint16_t VOICE_PLAYBACK_SAMPLES = 512;
@@ -265,6 +267,8 @@ bool voiceMemoKeyDown = false;
 bool voiceRecording = false;
 bool voicePlaying = false;
 bool voicePlaybackSpeakerReady = false;
+int displayedBatteryLevel = -1;
+bool batteryLowLatched = false;
 uint32_t voiceRecordingStartedMs = 0;
 uint32_t voiceRecordedBytes = 0;
 uint32_t voicePlaybackBytesRemaining = 0;
@@ -335,6 +339,10 @@ String timerMetaText()
 int batteryLevelPercent()
 {
   int batteryLevel = M5Cardputer.Power.getBatteryLevel();
+  if (batteryLevel < 0)
+  {
+    return -1;
+  }
   if (batteryLevel > 100)
   {
     return 100;
@@ -347,17 +355,58 @@ bool isPowerCharging()
   return M5Cardputer.Power.isCharging() == 1;
 }
 
+void updateBatteryStatus()
+{
+  int rawBatteryLevel = batteryLevelPercent();
+  bool charging = isPowerCharging();
+
+  int previousDisplayed = displayedBatteryLevel;
+  bool previousBatteryLow = batteryLowLatched;
+
+  if (rawBatteryLevel < 0)
+  {
+    displayedBatteryLevel = -1;
+    batteryLowLatched = false;
+  }
+  else
+  {
+    if (displayedBatteryLevel < 0 ||
+        abs(rawBatteryLevel - displayedBatteryLevel) >= BATTERY_DISPLAY_HYSTERESIS_PERCENT)
+    {
+      displayedBatteryLevel = rawBatteryLevel;
+    }
+
+    if (charging)
+    {
+      batteryLowLatched = false;
+    }
+    else if (batteryLowLatched)
+    {
+      if (displayedBatteryLevel >= LOW_BATTERY_RELEASE_PERCENT)
+      {
+        batteryLowLatched = false;
+      }
+    }
+    else if (displayedBatteryLevel <= LOW_BATTERY_THRESHOLD_PERCENT)
+    {
+      batteryLowLatched = true;
+    }
+  }
+
+  if (previousDisplayed != displayedBatteryLevel || previousBatteryLow != batteryLowLatched)
+  {
+    needsRedraw = true;
+  }
+}
+
 bool isBatteryLow()
 {
-  int batteryLevel = batteryLevelPercent();
-  return batteryLevel >= 0 &&
-         batteryLevel <= LOW_BATTERY_THRESHOLD_PERCENT &&
-         !isPowerCharging();
+  return batteryLowLatched;
 }
 
 String batteryText()
 {
-  int batteryLevel = batteryLevelPercent();
+  int batteryLevel = displayedBatteryLevel;
   const char *label = tr("BAT", "充電");
   if (batteryLevel < 0)
   {
@@ -384,7 +433,7 @@ const char *soundModeText()
 
 String powerStatusText()
 {
-  int batteryLevel = batteryLevelPercent();
+  int batteryLevel = displayedBatteryLevel;
   const char *label = tr("PWR", "充電");
   if (isPowerCharging())
   {
@@ -2474,6 +2523,7 @@ void setup()
   loadFeatureMode();
   loadLastSyncDate();
   loadLastMinutes();
+  updateBatteryStatus();
   resetToReady();
   drawScreen();
   initSdLogging();
@@ -2484,6 +2534,7 @@ void setup()
 void loop()
 {
   M5Cardputer.update();
+  updateBatteryStatus();
   updateVoiceMemoShortcut();
   updateVoiceRecording();
   updateVoicePlayback();
