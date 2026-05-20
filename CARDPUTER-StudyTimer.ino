@@ -283,137 +283,17 @@ VoiceMemoEntry voiceMemoEntries[VOICE_MEMO_MAX_ENTRIES];
 int16_t voiceRecordBuffer[VOICE_RECORD_SAMPLES];
 int16_t voicePlaybackBuffers[VOICE_PLAYBACK_BUFFERS][VOICE_PLAYBACK_SAMPLES];
 
-String formatTime(uint32_t seconds)
-{
-  uint32_t minutes = seconds / 60;
-  uint32_t secs = seconds % 60;
-  char buffer[8];
-  snprintf(buffer, sizeof(buffer), "%02lu:%02lu",
-           static_cast<unsigned long>(minutes),
-           static_cast<unsigned long>(secs));
-  return String(buffer);
-}
-
 const char *tr(const char *en, const char *ja)
 {
   return currentLanguage == LANG_JA ? ja : en;
 }
 
-uint16_t selectedMinutes()
-{
-  return selectedSeconds / 60;
-}
-
-float remainingRatio()
-{
-  if (selectedSeconds == 0)
-  {
-    return 0.0f;
-  }
-
-  float ratio = static_cast<float>(remainingSeconds) / static_cast<float>(selectedSeconds);
-  if (ratio < 0.0f)
-  {
-    return 0.0f;
-  }
-  if (ratio > 1.0f)
-  {
-    return 1.0f;
-  }
-  return ratio;
-}
-
-uint8_t remainingPercent()
-{
-  return static_cast<uint8_t>(remainingRatio() * 100.0f);
-}
-
 int32_t daySerialFromDate(const String &date);
 String dateFromDaySerial(int32_t daySerial);
+const char *soundModeText();
 
-String timerMetaText()
-{
-  return String(selectedMinutes()) + " min / " + String(remainingPercent()) + "%";
-}
-
-int batteryLevelPercent()
-{
-  int batteryLevel = M5Cardputer.Power.getBatteryLevel();
-  if (batteryLevel < 0)
-  {
-    return -1;
-  }
-  if (batteryLevel > 100)
-  {
-    return 100;
-  }
-  return batteryLevel;
-}
-
-bool isPowerCharging()
-{
-  return M5Cardputer.Power.isCharging() == 1;
-}
-
-void updateBatteryStatus()
-{
-  int rawBatteryLevel = batteryLevelPercent();
-  bool charging = isPowerCharging();
-
-  int previousDisplayed = displayedBatteryLevel;
-  bool previousBatteryLow = batteryLowLatched;
-
-  if (rawBatteryLevel < 0)
-  {
-    displayedBatteryLevel = -1;
-    batteryLowLatched = false;
-  }
-  else
-  {
-    if (displayedBatteryLevel < 0 ||
-        abs(rawBatteryLevel - displayedBatteryLevel) >= BATTERY_DISPLAY_HYSTERESIS_PERCENT)
-    {
-      displayedBatteryLevel = rawBatteryLevel;
-    }
-
-    if (charging)
-    {
-      batteryLowLatched = false;
-    }
-    else if (batteryLowLatched)
-    {
-      if (displayedBatteryLevel >= LOW_BATTERY_RELEASE_PERCENT)
-      {
-        batteryLowLatched = false;
-      }
-    }
-    else if (displayedBatteryLevel <= LOW_BATTERY_THRESHOLD_PERCENT)
-    {
-      batteryLowLatched = true;
-    }
-  }
-
-  if (previousDisplayed != displayedBatteryLevel || previousBatteryLow != batteryLowLatched)
-  {
-    needsRedraw = true;
-  }
-}
-
-bool isBatteryLow()
-{
-  return batteryLowLatched;
-}
-
-String batteryText()
-{
-  int batteryLevel = displayedBatteryLevel;
-  const char *label = tr("BAT", "充電");
-  if (batteryLevel < 0)
-  {
-    return String(label) + " --%";
-  }
-  return String(label) + " " + String(batteryLevel) + "%";
-}
+#include "timer_engine.h"
+#include "power_status.h"
 
 const char *soundModeText()
 {
@@ -429,36 +309,6 @@ const char *soundModeText()
   default:
     return tr("Normal", "普通の音");
   }
-}
-
-String powerStatusText()
-{
-  int batteryLevel = displayedBatteryLevel;
-  const char *label = tr("PWR", "充電");
-  if (isPowerCharging())
-  {
-    label = tr("CHG", "充電中");
-  }
-  else
-  {
-    label = tr("BAT", "電池");
-  }
-
-  if (batteryLevel < 0)
-  {
-    return String(label) + " --%";
-  }
-  return String(label) + " " + String(batteryLevel) + "%";
-}
-
-String deviceStatusText()
-{
-  return String(soundModeText()) + " / " + powerStatusText();
-}
-
-uint16_t deviceStatusColor()
-{
-  return isBatteryLow() ? LOW_BATTERY_COLOR : MUTED_COLOR;
 }
 
 uint16_t clampTimerMinutes(uint16_t minutes)
