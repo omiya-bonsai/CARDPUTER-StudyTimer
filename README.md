@@ -51,9 +51,9 @@ Wi-Fi and NTP are optional background helpers. The timer remains usable even if 
 - `1` to `5`: start a preset
 - `0`: enter a custom minute value
 - `S`: open settings
-- `L`: open stats
-- `V`: open voice memos
-- Hold `M`: record a voice memo from any screen
+- `L`: open stats in Rich mode
+- `V`: open voice memos in Rich mode
+- Hold `M`: record a voice memo from any screen in Rich mode
 
 ### Custom Input
 
@@ -68,7 +68,7 @@ Wi-Fi and NTP are optional background helpers. The timer remains usable even if 
 
 ### Settings
 
-Press `S` to open Language, then use `Fn + /` and `Fn + ;` to switch between Language and Volume.
+Press `S` to open Language, then use `Fn + /` and `Fn + ;` to switch between Language, Volume, and Mode in page order.
 
 Language:
 
@@ -81,12 +81,19 @@ Volume:
 - `2`: Normal
 - `3`: Loud
 
+Mode:
+
+- `1`: Simple, timer and settings only
+- `2`: Rich, stats and voice memos enabled
+
+The default mode is Simple. CSV logging and time sync continue in the background even in Simple mode.
+
 Controls:
 
-- `Fn + ;`: move left
-- `Fn + ,`: move down
-- `Fn + .`: move up
-- `Fn + /`: move right
+- `Fn + ;`: previous settings page
+- `Fn + ,`: move selection down
+- `Fn + .`: move selection up
+- `Fn + /`: next settings page
 - `Enter`: apply selected item
 - `Del`: return to Ready
 
@@ -94,7 +101,7 @@ Controls:
 
 ### Stats
 
-Press `L` to show stats from `study_log.csv` on the SD card.
+In Rich mode, press `L` to show stats from `study_log.csv` on the SD card.
 
 - today's total
 - last 7 days total
@@ -105,7 +112,7 @@ Synced devices use the exact NTP date. Before NTP sync, stats can still use a sa
 
 ### Voice Memos
 
-Hold `M` to record a voice memo from the built-in microphone. Recording does not stop the timer. Voice memos are saved as WAV files under `/voice_memos/` on the SD card.
+In Rich mode, hold `M` to record a voice memo from the built-in microphone. Recording does not stop the timer. Voice memos are saved as WAV files under `/voice_memos/` on the SD card.
 
 - Hold `M`: record
 - Release `M`: save

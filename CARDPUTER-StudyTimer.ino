@@ -54,6 +54,7 @@ enum AppState
   STATE_VOICE_MEMOS,
   STATE_LANGUAGE_SETTINGS,
   STATE_VOLUME_SETTINGS,
+  STATE_MODE_SETTINGS,
   STATE_CONFIRM_RESET
 };
 
@@ -70,13 +71,21 @@ enum SoundMode
   SOUND_LOUD
 };
 
+enum FeatureMode
+{
+  MODE_SIMPLE,
+  MODE_RICH
+};
+
 enum SettingsItem
 {
   SETTINGS_LANG_JA,
   SETTINGS_LANG_EN,
   SETTINGS_SOUND_QUIET,
   SETTINGS_SOUND_NORMAL,
-  SETTINGS_SOUND_LOUD
+  SETTINGS_SOUND_LOUD,
+  SETTINGS_MODE_SIMPLE,
+  SETTINGS_MODE_RICH
 };
 
 enum SettingsDirection
@@ -155,6 +164,7 @@ const char *PREF_NAMESPACE = "study_timer";
 const char *PREF_LAST_MINUTES = "last_minutes";
 const char *PREF_LANGUAGE = "language";
 const char *PREF_SOUND_MODE = "sound_mode";
+const char *PREF_FEATURE_MODE = "feature_mode";
 const char *PREF_LAST_SYNC_DATE = "last_sync_date";
 const char *PREF_LAST_SYNC_DAY = "last_sync_day";
 const char *LOG_FILENAME = "/study_log.csv";
@@ -211,12 +221,17 @@ const SettingsItemPosition VOLUME_SETTINGS_ITEM_POSITIONS[] = {
     {SETTINGS_SOUND_NORMAL, 120, 76},
     {SETTINGS_SOUND_LOUD, 120, 100},
 };
+const SettingsItemPosition MODE_SETTINGS_ITEM_POSITIONS[] = {
+    {SETTINGS_MODE_SIMPLE, 120, 52},
+    {SETTINGS_MODE_RICH, 120, 80},
+};
 
 AppState appState = STATE_READY;
 AppState stateBeforeConfirm = STATE_READY;
 AppState stateBeforeVoiceMemos = STATE_READY;
 UiLanguage currentLanguage = LANG_JA;
 SoundMode currentSoundMode = SOUND_NORMAL;
+FeatureMode currentFeatureMode = MODE_SIMPLE;
 SettingsItem selectedSettingsItem = SETTINGS_LANG_JA;
 Preferences preferences;
 M5Canvas screenCanvas;
@@ -451,6 +466,27 @@ void saveSoundMode()
   preferences.begin(PREF_NAMESPACE, false);
   preferences.putUChar(PREF_SOUND_MODE, currentSoundMode);
   preferences.end();
+}
+
+void loadFeatureMode()
+{
+  preferences.begin(PREF_NAMESPACE, true);
+  uint8_t mode = preferences.getUChar(PREF_FEATURE_MODE, MODE_SIMPLE);
+  preferences.end();
+
+  currentFeatureMode = mode == MODE_RICH ? MODE_RICH : MODE_SIMPLE;
+}
+
+void saveFeatureMode()
+{
+  preferences.begin(PREF_NAMESPACE, false);
+  preferences.putUChar(PREF_FEATURE_MODE, currentFeatureMode);
+  preferences.end();
+}
+
+bool richModeEnabled()
+{
+  return currentFeatureMode == MODE_RICH;
 }
 
 void saveLastMinutes()
@@ -910,6 +946,16 @@ void updateVoiceRecording()
 
 void updateVoiceMemoShortcut()
 {
+  if (!richModeEnabled())
+  {
+    if (voiceRecording)
+    {
+      finishVoiceRecording();
+    }
+    voiceMemoKeyDown = false;
+    return;
+  }
+
   Keyboard_Class::KeysState keys = M5Cardputer.Keyboard.keysState();
   bool mPressed = false;
   for (char key : keys.word)
@@ -1342,6 +1388,14 @@ void setSoundMode(SoundMode mode)
   setState(STATE_VOLUME_SETTINGS);
 }
 
+void setFeatureMode(FeatureMode mode)
+{
+  currentFeatureMode = mode;
+  saveFeatureMode();
+  beep(1000, 35);
+  setState(STATE_MODE_SETTINGS);
+}
+
 void applySelectedSettingsItem()
 {
   switch (selectedSettingsItem)
@@ -1365,12 +1419,22 @@ void applySelectedSettingsItem()
   case SETTINGS_SOUND_LOUD:
     setSoundMode(SOUND_LOUD);
     break;
+
+  case SETTINGS_MODE_SIMPLE:
+    setFeatureMode(MODE_SIMPLE);
+    break;
+
+  case SETTINGS_MODE_RICH:
+    setFeatureMode(MODE_RICH);
+    break;
   }
 }
 
 bool isSettingsState()
 {
-  return appState == STATE_LANGUAGE_SETTINGS || appState == STATE_VOLUME_SETTINGS;
+  return appState == STATE_LANGUAGE_SETTINGS ||
+         appState == STATE_VOLUME_SETTINGS ||
+         appState == STATE_MODE_SETTINGS;
 }
 
 void openLanguageSettings()
@@ -1398,6 +1462,38 @@ void openVolumeSettings()
   setState(STATE_VOLUME_SETTINGS);
 }
 
+void openModeSettings()
+{
+  selectedSettingsItem = currentFeatureMode == MODE_RICH ? SETTINGS_MODE_RICH : SETTINGS_MODE_SIMPLE;
+  setState(STATE_MODE_SETTINGS);
+}
+
+void nextSettingsPage()
+{
+  if (appState == STATE_LANGUAGE_SETTINGS)
+  {
+    openVolumeSettings();
+    return;
+  }
+  if (appState == STATE_VOLUME_SETTINGS)
+  {
+    openModeSettings();
+  }
+}
+
+void previousSettingsPage()
+{
+  if (appState == STATE_MODE_SETTINGS)
+  {
+    openVolumeSettings();
+    return;
+  }
+  if (appState == STATE_VOLUME_SETTINGS)
+  {
+    openLanguageSettings();
+  }
+}
+
 const SettingsItemPosition *currentSettingsItemPosition()
 {
   const SettingsItemPosition *positions = LANGUAGE_SETTINGS_ITEM_POSITIONS;
@@ -1406,6 +1502,11 @@ const SettingsItemPosition *currentSettingsItemPosition()
   {
     positions = VOLUME_SETTINGS_ITEM_POSITIONS;
     positionCount = sizeof(VOLUME_SETTINGS_ITEM_POSITIONS) / sizeof(VOLUME_SETTINGS_ITEM_POSITIONS[0]);
+  }
+  if (appState == STATE_MODE_SETTINGS)
+  {
+    positions = MODE_SETTINGS_ITEM_POSITIONS;
+    positionCount = sizeof(MODE_SETTINGS_ITEM_POSITIONS) / sizeof(MODE_SETTINGS_ITEM_POSITIONS[0]);
   }
 
   for (uint8_t index = 0; index < positionCount; index++)
@@ -1480,6 +1581,11 @@ bool moveSettingsSelection(SettingsDirection direction)
   {
     positions = VOLUME_SETTINGS_ITEM_POSITIONS;
     positionCount = sizeof(VOLUME_SETTINGS_ITEM_POSITIONS) / sizeof(VOLUME_SETTINGS_ITEM_POSITIONS[0]);
+  }
+  if (appState == STATE_MODE_SETTINGS)
+  {
+    positions = MODE_SETTINGS_ITEM_POSITIONS;
+    positionCount = sizeof(MODE_SETTINGS_ITEM_POSITIONS) / sizeof(MODE_SETTINGS_ITEM_POSITIONS[0]);
   }
 
   bool found = false;
@@ -1982,7 +2088,9 @@ void drawScreen()
     drawSegments(1.0f, false);
     drawCenteredText(formatTime(remainingSeconds), 34, 5, TEXT_COLOR);
     drawDeviceStatus(78, deviceStatusColor());
-    drawCenteredLabel(tr("START  1-5  0  S L V", "開始  1-5  0  S L V"), 102, MUTED_COLOR);
+    drawCenteredLabel(richModeEnabled() ? tr("START  1-5  0  S L V", "開始  1-5  0  S L V")
+                                        : tr("START  1-5  0  S", "開始  1-5  0  S"),
+                      102, MUTED_COLOR);
     if (!sdAvailable)
     {
       drawCenteredText("LOG OFF", 126, 1, MUTED_COLOR);
@@ -2055,13 +2163,23 @@ void drawScreen()
 
   case STATE_VOLUME_SETTINGS:
     drawCenteredLabel(tr("Volume", "音量の設定"), 4, TEXT_COLOR);
-    drawCenteredLabel(tr("PREV: Fn+;", "前: Fn+;"), 24, MUTED_COLOR);
+    drawCenteredLabel(tr("PREV Fn+;  NEXT Fn+/", "前 Fn+;  次 Fn+/"), 24, MUTED_COLOR);
     drawLabelAt(settingsLabel(SETTINGS_SOUND_QUIET, "1 Quiet", "1 静音"), 62, 44,
                 settingsItemColor(SETTINGS_SOUND_QUIET, currentSoundMode == SOUND_QUIET));
     drawLabelAt(settingsLabel(SETTINGS_SOUND_NORMAL, "2 Normal", "2 普通の音"), 62, 68,
                 settingsItemColor(SETTINGS_SOUND_NORMAL, currentSoundMode == SOUND_NORMAL));
     drawLabelAt(settingsLabel(SETTINGS_SOUND_LOUD, "3 Loud", "3 うるさい"), 62, 96,
                 settingsItemColor(SETTINGS_SOUND_LOUD, currentSoundMode == SOUND_LOUD));
+    drawCenteredLabel(tr("DEL BACK", "DEL 戻る"), 120, MUTED_COLOR);
+    break;
+
+  case STATE_MODE_SETTINGS:
+    drawCenteredLabel(tr("Mode", "モード"), 10, TEXT_COLOR);
+    drawCenteredLabel(tr("PREV: Fn+;", "前: Fn+;"), 28, MUTED_COLOR);
+    drawLabelAt(settingsLabel(SETTINGS_MODE_SIMPLE, "1 Simple", "1 シンプル"), 62, 52,
+                settingsItemColor(SETTINGS_MODE_SIMPLE, currentFeatureMode == MODE_SIMPLE));
+    drawLabelAt(settingsLabel(SETTINGS_MODE_RICH, "2 Rich", "2 リッチ"), 62, 80,
+                settingsItemColor(SETTINGS_MODE_RICH, currentFeatureMode == MODE_RICH));
     drawCenteredLabel(tr("DEL BACK", "DEL 戻る"), 120, MUTED_COLOR);
     break;
 
@@ -2145,15 +2263,17 @@ void handleKeyboard()
     SettingsDirection direction = settingsDirectionFromKeys(keys);
     if (direction != SETTINGS_DIRECTION_NONE)
     {
-      bool moved = moveSettingsSelection(direction);
-      if (!moved && appState == STATE_LANGUAGE_SETTINGS && direction == SETTINGS_DIRECTION_RIGHT)
+      if (direction == SETTINGS_DIRECTION_RIGHT)
       {
-        openVolumeSettings();
+        nextSettingsPage();
+        return;
       }
-      if (!moved && appState == STATE_VOLUME_SETTINGS && direction == SETTINGS_DIRECTION_LEFT)
+      if (direction == SETTINGS_DIRECTION_LEFT)
       {
-        openLanguageSettings();
+        previousSettingsPage();
+        return;
       }
+      moveSettingsSelection(direction);
       return;
     }
   }
@@ -2186,7 +2306,7 @@ void handleKeyboard()
 
   for (char key : keys.word)
   {
-    if ((key == 'v' || key == 'V') && appState != STATE_VOICE_MEMOS)
+    if (richModeEnabled() && (key == 'v' || key == 'V') && appState != STATE_VOICE_MEMOS)
     {
       openVoiceMemos();
       return;
@@ -2209,7 +2329,7 @@ void handleKeyboard()
         openLanguageSettings();
         return;
       }
-      if (key == 'l' || key == 'L')
+      if (richModeEnabled() && (key == 'l' || key == 'L'))
       {
         setState(STATE_STATS);
         return;
@@ -2256,6 +2376,22 @@ void handleKeyboard()
       {
         selectedSettingsItem = SETTINGS_SOUND_LOUD;
         setSoundMode(SOUND_LOUD);
+        return;
+      }
+    }
+
+    if (appState == STATE_MODE_SETTINGS)
+    {
+      if (key == '1')
+      {
+        selectedSettingsItem = SETTINGS_MODE_SIMPLE;
+        setFeatureMode(MODE_SIMPLE);
+        return;
+      }
+      if (key == '2')
+      {
+        selectedSettingsItem = SETTINGS_MODE_RICH;
+        setFeatureMode(MODE_RICH);
         return;
       }
     }
@@ -2308,6 +2444,7 @@ void handleKeyboard()
 
   case STATE_LANGUAGE_SETTINGS:
   case STATE_VOLUME_SETTINGS:
+  case STATE_MODE_SETTINGS:
     applySelectedSettingsItem();
     break;
 
@@ -2334,6 +2471,7 @@ void setup()
 
   loadLanguage();
   loadSoundMode();
+  loadFeatureMode();
   loadLastSyncDate();
   loadLastMinutes();
   resetToReady();
