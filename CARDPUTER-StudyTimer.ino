@@ -88,6 +88,16 @@ enum SettingsDirection
   SETTINGS_DIRECTION_RIGHT
 };
 
+enum TimeStatus
+{
+  TIME_STATUS_NO_WIFI_CONFIG,
+  TIME_STATUS_WIFI_CONNECTING,
+  TIME_STATUS_NTP_WAITING,
+  TIME_STATUS_SYNCED,
+  TIME_STATUS_OFFLINE_DATE,
+  TIME_STATUS_NO_DATE
+};
+
 struct SettingsItemPosition
 {
   SettingsItem item;
@@ -100,6 +110,7 @@ struct LogTimeFields
   String date;
   String time;
   bool synced;
+  bool offlineDate;
 };
 
 struct StudyStats
@@ -144,6 +155,8 @@ const char *PREF_NAMESPACE = "study_timer";
 const char *PREF_LAST_MINUTES = "last_minutes";
 const char *PREF_LANGUAGE = "language";
 const char *PREF_SOUND_MODE = "sound_mode";
+const char *PREF_LAST_SYNC_DATE = "last_sync_date";
+const char *PREF_LAST_SYNC_DAY = "last_sync_day";
 const char *LOG_FILENAME = "/study_log.csv";
 const char *VOICE_MEMO_DIR = "/voice_memos";
 const uint8_t SD_SPI_SCK_PIN = 40;
@@ -151,7 +164,8 @@ const uint8_t SD_SPI_MOSI_PIN = 14;
 const uint8_t SD_SPI_MISO_PIN = 39;
 const uint8_t SD_SPI_CS_PIN = 12;
 const uint32_t WIFI_RETRY_INTERVAL_MS = 30000;
-const uint32_t TIME_SYNC_CHECK_INTERVAL_MS = 2000;
+const uint32_t NTP_RETRY_INTERVAL_MS = 5000;
+const uint32_t NTP_RECONFIG_INTERVAL_MS = 30000;
 const uint32_t CUSTOM_INPUT_TIMEOUT_MS = 7000;
 const uint32_t DONE_RETURN_MS = 3000;
 const uint32_t DIM_AFTER_MS = 30000;
@@ -219,8 +233,14 @@ bool lastLogSaved = false;
 bool wifiStarted = false;
 bool ntpConfigured = false;
 bool timeSynced = false;
+bool offlineDateAvailable = false;
 uint32_t lastWifiRetryMs = 0;
 uint32_t lastTimeSyncCheckMs = 0;
+uint32_t lastNtpConfigMs = 0;
+uint32_t offlineDateBaseMs = 0;
+uint8_t ntpFailCount = 0;
+int32_t lastSyncDaySerial = -1;
+String lastSyncDate = "";
 uint32_t lastInteractionMs = 0;
 uint32_t lastSegmentBlinkMs = 0;
 uint8_t currentBrightness = BRIGHTNESS_NORMAL;
@@ -288,6 +308,9 @@ uint8_t remainingPercent()
 {
   return static_cast<uint8_t>(remainingRatio() * 100.0f);
 }
+
+int32_t daySerialFromDate(const String &date);
+String dateFromDaySerial(int32_t daySerial);
 
 String timerMetaText()
 {
@@ -437,6 +460,35 @@ void saveLastMinutes()
   preferences.end();
 }
 
+void loadLastSyncDate()
+{
+  preferences.begin(PREF_NAMESPACE, true);
+  lastSyncDate = preferences.getString(PREF_LAST_SYNC_DATE, "");
+  lastSyncDaySerial = preferences.getInt(PREF_LAST_SYNC_DAY, -1);
+  preferences.end();
+
+  offlineDateAvailable = lastSyncDaySerial >= 0 && lastSyncDate.length() == 10;
+  offlineDateBaseMs = millis();
+}
+
+void saveLastSyncDate(const String &date, int32_t daySerial)
+{
+  if (daySerial < 0 || date.length() != 10)
+  {
+    return;
+  }
+
+  preferences.begin(PREF_NAMESPACE, false);
+  preferences.putString(PREF_LAST_SYNC_DATE, date);
+  preferences.putInt(PREF_LAST_SYNC_DAY, daySerial);
+  preferences.end();
+
+  lastSyncDate = date;
+  lastSyncDaySerial = daySerial;
+  offlineDateAvailable = true;
+  offlineDateBaseMs = millis();
+}
+
 void initSdLogging()
 {
   SPI.begin(SD_SPI_SCK_PIN, SD_SPI_MISO_PIN, SD_SPI_MOSI_PIN, SD_SPI_CS_PIN);
@@ -465,6 +517,7 @@ void updateBackgroundTimeSync()
 {
   if (!wifiConfigured())
   {
+    timeSynced = false;
     return;
   }
 
@@ -480,6 +533,7 @@ void updateBackgroundTimeSync()
   {
     ntpConfigured = false;
     timeSynced = false;
+    ntpFailCount = 0;
     if (now - lastWifiRetryMs >= WIFI_RETRY_INTERVAL_MS)
     {
       WiFi.disconnect(false);
@@ -494,9 +548,18 @@ void updateBackgroundTimeSync()
     configTime(GMT_OFFSET_SECONDS, DAYLIGHT_OFFSET_SECONDS,
                NTP_SERVER_1, NTP_SERVER_2, NTP_SERVER_3);
     ntpConfigured = true;
+    lastNtpConfigMs = now;
   }
 
-  if (timeSynced || now - lastTimeSyncCheckMs < TIME_SYNC_CHECK_INTERVAL_MS)
+  if (!timeSynced && now - lastNtpConfigMs >= NTP_RECONFIG_INTERVAL_MS)
+  {
+    configTime(GMT_OFFSET_SECONDS, DAYLIGHT_OFFSET_SECONDS,
+               NTP_SERVER_1, NTP_SERVER_2, NTP_SERVER_3);
+    lastNtpConfigMs = now;
+    ntpFailCount = 0;
+  }
+
+  if (timeSynced || now - lastTimeSyncCheckMs < NTP_RETRY_INTERVAL_MS)
   {
     return;
   }
@@ -506,31 +569,45 @@ void updateBackgroundTimeSync()
   if (getLocalTime(&timeInfo, 5))
   {
     timeSynced = true;
+    ntpFailCount = 0;
+    char dateBuffer[11];
+    strftime(dateBuffer, sizeof(dateBuffer), "%Y-%m-%d", &timeInfo);
+    saveLastSyncDate(dateBuffer, daySerialFromDate(dateBuffer));
+    needsRedraw = true;
+    return;
+  }
+
+  ntpFailCount++;
+  if (ntpFailCount >= 3)
+  {
+    ntpConfigured = false;
   }
 }
 
 LogTimeFields currentLogTimeFields()
 {
-  LogTimeFields fields = {"", "", false};
-  if (!timeSynced)
-  {
-    return fields;
-  }
+  LogTimeFields fields = {"", "", false, false};
 
   struct tm timeInfo;
-  if (!getLocalTime(&timeInfo, 5))
+  if (timeSynced && getLocalTime(&timeInfo, 5))
   {
-    timeSynced = false;
+    char dateBuffer[11];
+    char timeBuffer[9];
+    strftime(dateBuffer, sizeof(dateBuffer), "%Y-%m-%d", &timeInfo);
+    strftime(timeBuffer, sizeof(timeBuffer), "%H:%M:%S", &timeInfo);
+    fields.date = dateBuffer;
+    fields.time = timeBuffer;
+    fields.synced = true;
     return fields;
   }
 
-  char dateBuffer[11];
-  char timeBuffer[9];
-  strftime(dateBuffer, sizeof(dateBuffer), "%Y-%m-%d", &timeInfo);
-  strftime(timeBuffer, sizeof(timeBuffer), "%H:%M:%S", &timeInfo);
-  fields.date = dateBuffer;
-  fields.time = timeBuffer;
-  fields.synced = true;
+  timeSynced = false;
+  if (offlineDateAvailable)
+  {
+    uint32_t elapsedDays = (millis() - offlineDateBaseMs) / 86400000UL;
+    fields.date = dateFromDaySerial(lastSyncDaySerial + elapsedDays);
+    fields.offlineDate = fields.date.length() == 10;
+  }
   return fields;
 }
 
@@ -538,6 +615,56 @@ String currentDateString()
 {
   LogTimeFields fields = currentLogTimeFields();
   return fields.date;
+}
+
+const char *logSyncStatus(const LogTimeFields &fields)
+{
+  if (fields.synced)
+  {
+    return "synced";
+  }
+  if (fields.offlineDate)
+  {
+    return "offline";
+  }
+  return "unsynced";
+}
+
+TimeStatus currentTimeStatus()
+{
+  if (timeSynced)
+  {
+    return TIME_STATUS_SYNCED;
+  }
+  if (wifiConfigured())
+  {
+    if (!wifiStarted || WiFi.status() != WL_CONNECTED)
+    {
+      return offlineDateAvailable ? TIME_STATUS_OFFLINE_DATE : TIME_STATUS_WIFI_CONNECTING;
+    }
+    return offlineDateAvailable ? TIME_STATUS_OFFLINE_DATE : TIME_STATUS_NTP_WAITING;
+  }
+  return offlineDateAvailable ? TIME_STATUS_OFFLINE_DATE : TIME_STATUS_NO_WIFI_CONFIG;
+}
+
+const char *timeStatusLabel()
+{
+  switch (currentTimeStatus())
+  {
+  case TIME_STATUS_NO_WIFI_CONFIG:
+    return tr("NO WIFI", "WiFi未設定");
+  case TIME_STATUS_WIFI_CONNECTING:
+    return "WIFI...";
+  case TIME_STATUS_NTP_WAITING:
+    return "NTP...";
+  case TIME_STATUS_SYNCED:
+    return tr("SYNCED", "同期済み");
+  case TIME_STATUS_OFFLINE_DATE:
+    return tr("OFFLINE DATE", "オフライン日付");
+  case TIME_STATUS_NO_DATE:
+    return tr("NO DATE", "日付なし");
+  }
+  return "";
 }
 
 void setVoiceStatus(const char *text, uint32_t durationMs = 1800)
@@ -941,6 +1068,25 @@ int32_t daySerialFromDate(const String &date)
   return timestamp / 86400;
 }
 
+String dateFromDaySerial(int32_t daySerial)
+{
+  if (daySerial < 0)
+  {
+    return "";
+  }
+
+  time_t timestamp = (static_cast<time_t>(daySerial) * 86400) + 43200;
+  struct tm *dateInfo = localtime(&timestamp);
+  if (dateInfo == nullptr)
+  {
+    return "";
+  }
+
+  char dateBuffer[11];
+  strftime(dateBuffer, sizeof(dateBuffer), "%Y-%m-%d", dateInfo);
+  return String(dateBuffer);
+}
+
 StudyStats calculateStudyStats()
 {
   StudyStats stats = {sdAvailable, false, 0, 0, 0, {0, 0, 0, 0, 0, 0, 0}};
@@ -1073,7 +1219,7 @@ bool appendCompletedLog()
   file.print(",");
   file.print(logTime.time);
   file.print(",");
-  file.print(logTime.synced ? "synced" : "unsynced");
+  file.print(logSyncStatus(logTime));
   file.print(",");
   file.print(selectedMinutes());
   file.print(",");
@@ -1744,12 +1890,16 @@ void drawStatsScreen()
 
   if (!stats.timeReady)
   {
-    drawCenteredLabel("TIME OFF", 48, MUTED_COLOR);
-    drawCenteredLabel(tr("SYNC NEEDED", "時刻同期待ち"), 76, MUTED_COLOR);
+    drawCenteredLabel(timeStatusLabel(), 48, MUTED_COLOR);
+    drawCenteredLabel(tr("SYNC NEEDED", "同期が必要"), 76, MUTED_COLOR);
     drawCenteredLabel(tr("DEL BACK", "DEL 戻る"), 120, MUTED_COLOR);
     return;
   }
 
+  if (currentTimeStatus() == TIME_STATUS_OFFLINE_DATE)
+  {
+    drawCenteredLabel(timeStatusLabel(), 12, MUTED_COLOR);
+  }
   drawLabelAt(tr("TODAY", "今日"), 12, 28, MUTED_COLOR);
   drawLabelAt(String(stats.todayMinutes) + "m", 88, 28, TEXT_COLOR);
   drawLabelAt(tr("7 DAYS", "7日間"), 12, 50, MUTED_COLOR);
@@ -2179,6 +2329,7 @@ void setup()
 
   loadLanguage();
   loadSoundMode();
+  loadLastSyncDate();
   loadLastMinutes();
   resetToReady();
   drawScreen();

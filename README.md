@@ -101,7 +101,7 @@ Press `L` to show stats from `study_log.csv` on the SD card.
 - streak days
 - simple 7-day bars
 
-Stats wait for time sync and an available SD card.
+Synced devices use the exact NTP date. Before NTP sync, stats can still use a saved date as `OFFLINE DATE` when a previous sync exists. Stats still require an available SD card.
 
 ### Voice Memos
 
@@ -135,7 +135,7 @@ Copy `config.example.h` to `config.h` and edit only `config.h`.
 
 Do not commit real Wi-Fi credentials. `config.h` is intentionally ignored.
 
-If Wi-Fi is not configured, the timer still works and completed sessions are logged as `unsynced`.
+If Wi-Fi is not configured, the timer still works. When a previous sync date is available, completed sessions are logged as `offline` with a date. If no date is available, they are logged as `unsynced`.
 
 ## CSV Log
 
@@ -151,14 +151,15 @@ Current CSV format:
 date,time,sync_status,duration_min,completed,input_type
 2026-05-19,13:32:52,synced,25,1,preset4
 2026-05-19,14:10:12,synced,45,1,custom
+2026-05-19,,offline,25,1,preset4
 ,,unsynced,15,1,preset3
 ```
 
 Columns:
 
-- `date`: `YYYY-MM-DD`, empty when NTP is not synced
+- `date`: `YYYY-MM-DD`, empty when no date is available
 - `time`: `HH:MM:SS`, empty when NTP is not synced
-- `sync_status`: `synced` or `unsynced`
+- `sync_status`: `synced`, `offline`, or `unsynced`
 - `duration_min`: timer duration in minutes
 - `completed`: `1` for completed sessions
 - `input_type`: `preset1` to `preset5`, or `custom`
