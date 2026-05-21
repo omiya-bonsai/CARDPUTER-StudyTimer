@@ -5,6 +5,36 @@ void setState(AppState nextState);
 void loadVoiceMemoList();
 LogTimeFields currentLogTimeFields();
 bool richModeEnabled();
+void drawScreen();
+
+struct __attribute__((packed)) WavSubChunkHeader
+{
+  char identifier[4];
+  uint32_t chunkSize;
+};
+
+bool speakerRawSelfTest()
+{
+  static constexpr uint32_t testRate = 17000;
+  static constexpr size_t testSamples = 17000; // 1 sec
+  static int16_t testBuf[testSamples];
+  for (size_t i = 0; i < testSamples; i++)
+  {
+    float phase = (2.0f * PI * 440.0f * i) / static_cast<float>(testRate);
+    testBuf[i] = static_cast<int16_t>(sinf(phase) * 20000.0f);
+  }
+  bool queued = M5Cardputer.Speaker.playRaw(testBuf, testSamples, testRate, false, 1, 0, true);
+  if (!queued)
+  {
+    return false;
+  }
+  do
+  {
+    delay(1);
+    M5Cardputer.update();
+  } while (M5Cardputer.Speaker.isPlaying());
+  return true;
+}
 
 void setVoiceStatus(const char *text, uint32_t durationMs = 1800)
 {
@@ -195,10 +225,17 @@ void startVoiceRecording()
     setVoiceStatus("MIC ERR");
     return;
   }
+  auto micCfg = M5Cardputer.Mic.config();
+  micCfg.magnification = 32;
+  micCfg.over_sampling = 2;
+  micCfg.noise_filter_level = 0;
+  micCfg.input_channel = m5::input_only_right;
+  M5Cardputer.Mic.config(micCfg);
 
   voiceRecording = true;
   voiceRecordingStartedMs = millis();
   voiceRecordedBytes = 0;
+  voiceRecordPeak = 0;
   needsRedraw = true;
 }
 
@@ -225,7 +262,18 @@ void finishVoiceRecording()
   M5Cardputer.Speaker.begin();
   M5Cardputer.Speaker.setVolume(SPEAKER_DEFAULT_VOLUME);
   voiceRecording = false;
-  setVoiceStatus(voiceRecordedBytes > 0 ? "SAVED" : "EMPTY");
+  if (voiceRecordedBytes == 0)
+  {
+    setVoiceStatus("EMPTY");
+  }
+  else if (voiceRecordPeak < VOICE_SILENCE_THRESHOLD)
+  {
+    setVoiceStatus("LOW MIC");
+  }
+  else
+  {
+    setVoiceStatus("SAVED");
+  }
   if (appState == STATE_VOICE_MEMOS)
   {
     loadVoiceMemoList();
@@ -241,9 +289,23 @@ void updateVoiceRecording()
 
   if (M5Cardputer.Mic.record(voiceRecordBuffer, VOICE_RECORD_SAMPLES, VOICE_SAMPLE_RATE, false))
   {
+    for (uint16_t index = 0; index < VOICE_RECORD_SAMPLES; index++)
+    {
+      int32_t sample = voiceRecordBuffer[index];
+      uint16_t amplitude = static_cast<uint16_t>(sample < 0 ? -sample : sample);
+      if (amplitude > voiceRecordPeak)
+      {
+        voiceRecordPeak = amplitude;
+      }
+    }
     size_t bytes = sizeof(voiceRecordBuffer);
-    voiceMemoFile.write(reinterpret_cast<uint8_t *>(voiceRecordBuffer), bytes);
-    voiceRecordedBytes += bytes;
+    size_t written = voiceMemoFile.write(reinterpret_cast<uint8_t *>(voiceRecordBuffer), bytes);
+    voiceRecordedBytes += written;
+    if (written != bytes)
+    {
+      setVoiceStatus("SD W ERR", 5000);
+      drawScreen();
+    }
   }
 }
 
@@ -290,6 +352,8 @@ bool startVoiceMemoPlayback()
   }
 
   stopVoiceMemoPlayback();
+  setVoiceStatus("PLAY OPEN", 5000);
+  drawScreen();
   voicePlaybackFile = SD.open(voiceMemoEntries[selectedVoiceMemoIndex].path.c_str(), FILE_READ);
   if (!voicePlaybackFile)
   {
@@ -298,31 +362,182 @@ bool startVoiceMemoPlayback()
   }
 
   WavHeader header;
+  setVoiceStatus("PLAY HDR", 5000);
+  drawScreen();
   if (voicePlaybackFile.read(reinterpret_cast<uint8_t *>(&header), sizeof(header)) != sizeof(header) ||
       memcmp(header.riff, "RIFF", 4) != 0 ||
       memcmp(header.wave, "WAVE", 4) != 0 ||
-      memcmp(header.data, "data", 4) != 0 ||
       header.audioFormat != 1 ||
-      header.channels != 1 ||
-      header.bitsPerSample != 16 ||
-      header.sampleRate != VOICE_SAMPLE_RATE)
+      header.bitsPerSample < 8 ||
+      header.bitsPerSample > 16 ||
+      header.channels == 0 ||
+      header.channels > 2 ||
+      header.sampleRate == 0)
   {
     voicePlaybackFile.close();
     setVoiceStatus("WAV ERR");
     return false;
   }
+  voicePlaybackFile.seek(offsetof(WavHeader, audioFormat) + header.fmtSize);
+  WavSubChunkHeader chunk;
+  if (voicePlaybackFile.read(reinterpret_cast<uint8_t *>(&chunk), sizeof(chunk)) != sizeof(chunk))
+  {
+    voicePlaybackFile.close();
+    setVoiceStatus("WAV ERR");
+    return false;
+  }
+  while (memcmp(chunk.identifier, "data", 4) != 0)
+  {
+    if (!voicePlaybackFile.seek(chunk.chunkSize, SeekMode::SeekCur) ||
+        voicePlaybackFile.read(reinterpret_cast<uint8_t *>(&chunk), sizeof(chunk)) != sizeof(chunk))
+    {
+      voicePlaybackFile.close();
+      setVoiceStatus("WAV ERR");
+      return false;
+    }
+  }
+  uint32_t dataLen = chunk.chunkSize;
+  if (dataLen == 0)
+  {
+    voicePlaybackFile.close();
+    setVoiceStatus("WAV SIZE");
+    return false;
+  }
 
   M5Cardputer.Mic.end();
-  if (!voicePlaybackSpeakerReady)
+  M5Cardputer.Speaker.end();
+  delay(2);
+  M5Cardputer.Speaker.begin();
+  voicePlaybackSpeakerReady = true;
+  auto spkCfg = M5Cardputer.Speaker.config();
+  spkCfg.magnification = 64;
+  M5Cardputer.Speaker.config(spkCfg);
+  M5Cardputer.Speaker.setVolume(VOICE_PLAYBACK_VOLUME);
+  M5Cardputer.Speaker.setAllChannelVolume(255);
+  if (!speakerRawSelfTest())
   {
-    M5Cardputer.Speaker.begin();
-    M5Cardputer.Speaker.setVolume(SPEAKER_DEFAULT_VOLUME);
-    voicePlaybackSpeakerReady = true;
+    setVoiceStatus("RAW NG", 5000);
+    drawScreen();
+    voicePlaybackFile.close();
+    return false;
   }
-  voicePlaybackBytesRemaining = header.dataSize;
-  voicePlaybackBufferIndex = 0;
-  voicePlaying = true;
-  needsRedraw = true;
+  setVoiceStatus("RAW OK", 5000);
+  drawScreen();
+  delay(1000);
+  M5Cardputer.update();
+  setVoiceStatus("PLAY STR", 5000);
+  drawScreen();
+  bool is16Bit = header.bitsPerSample >= 16;
+  bool isStereo = false;
+  const uint32_t playbackRate = VOICE_SAMPLE_RATE;
+  uint32_t playedBytes = 0;
+  uint16_t rawPeak = 0;
+  uint16_t rawSpan = 0;
+  while (dataLen > 0)
+  {
+    size_t bytesToRead = dataLen;
+    if (bytesToRead > sizeof(voicePlaybackBuffers[0]))
+    {
+      bytesToRead = sizeof(voicePlaybackBuffers[0]);
+    }
+    size_t bytesRead = voicePlaybackFile.read(reinterpret_cast<uint8_t *>(voicePlaybackBuffers[0]), bytesToRead);
+    if (bytesRead == 0)
+    {
+      break;
+    }
+    playedBytes += bytesRead;
+    while (M5Cardputer.Speaker.isPlaying())
+    {
+      delay(1);
+      M5Cardputer.update();
+    }
+    dataLen -= bytesRead;
+    bool queued = false;
+    if (is16Bit)
+    {
+      size_t sampleCount = bytesRead >> 1;
+      int16_t *samples = reinterpret_cast<int16_t *>(voicePlaybackBuffers[0]);
+      int16_t minS = 32767;
+      int16_t maxS = -32768;
+      for (size_t i = 0; i < sampleCount; i++)
+      {
+        int16_t s = samples[i];
+        if (s < minS)
+        {
+          minS = s;
+        }
+        if (s > maxS)
+        {
+          maxS = s;
+        }
+        uint16_t a = static_cast<uint16_t>(s < 0 ? -s : s);
+        if (a > rawPeak)
+        {
+          rawPeak = a;
+        }
+      }
+      uint16_t span = static_cast<uint16_t>(maxS - minS);
+      if (span > rawSpan)
+      {
+        rawSpan = span;
+      }
+      for (size_t i = 0; i < sampleCount; i++)
+      {
+        int32_t amplified = static_cast<int32_t>(samples[i]) * VOICE_PLAYBACK_GAIN;
+        if (amplified > 32767)
+        {
+          amplified = 32767;
+        }
+        else if (amplified < -32768)
+        {
+          amplified = -32768;
+        }
+        samples[i] = static_cast<int16_t>(amplified);
+      }
+      queued = M5Cardputer.Speaker.playRaw(reinterpret_cast<const int16_t *>(voicePlaybackBuffers[0]),
+                                           sampleCount,
+                                           playbackRate,
+                                           isStereo,
+                                           1,
+                                           0,
+                                           true);
+    }
+    else
+    {
+      queued = M5Cardputer.Speaker.playRaw(reinterpret_cast<const uint8_t *>(voicePlaybackBuffers[0]),
+                                           bytesRead,
+                                           playbackRate,
+                                           isStereo,
+                                           1,
+                                           0,
+                                           true);
+    }
+    if (!queued)
+    {
+      setVoiceStatus("SPK ERR", 5000);
+      drawScreen();
+      break;
+    }
+    M5Cardputer.update();
+  }
+  while (M5Cardputer.Speaker.isPlaying())
+  {
+    delay(1);
+    M5Cardputer.update();
+  }
+  if (playedBytes == 0)
+  {
+    setVoiceStatus("NO PCM", 5000);
+    drawScreen();
+  }
+  else
+  {
+    setVoiceStatus((String("B:") + String(playedBytes) + " P:" + String(rawPeak) + " S:" + String(rawSpan)).c_str(), 5000);
+    drawScreen();
+  }
+
+  stopVoiceMemoPlayback();
+  M5Cardputer.Speaker.setVolume(SPEAKER_DEFAULT_VOLUME);
   return true;
 }
 
@@ -333,37 +548,12 @@ void updateVoicePlayback()
     return;
   }
 
-  if (voicePlaybackBytesRemaining == 0)
-  {
-    if (!M5Cardputer.Speaker.isPlaying(VOICE_PLAYBACK_CHANNEL))
-    {
-      stopVoiceMemoPlayback();
-    }
-    return;
-  }
-
-  if (M5Cardputer.Speaker.isPlaying(VOICE_PLAYBACK_CHANNEL) > 1)
+  if (M5Cardputer.Speaker.isPlaying())
   {
     return;
   }
-
-  size_t bufferBytes = sizeof(voicePlaybackBuffers[voicePlaybackBufferIndex]);
-  size_t bytesToRead = voicePlaybackBytesRemaining < bufferBytes ? voicePlaybackBytesRemaining : bufferBytes;
-  size_t bytesRead = voicePlaybackFile.read(reinterpret_cast<uint8_t *>(voicePlaybackBuffers[voicePlaybackBufferIndex]), bytesToRead);
-  if (bytesRead == 0)
-  {
-    voicePlaybackBytesRemaining = 0;
-    return;
-  }
-
-  voicePlaybackBytesRemaining -= bytesRead;
-  M5Cardputer.Speaker.playRaw(voicePlaybackBuffers[voicePlaybackBufferIndex],
-                              bytesRead / sizeof(int16_t),
-                              VOICE_SAMPLE_RATE,
-                              false,
-                              1,
-                              VOICE_PLAYBACK_CHANNEL);
-  voicePlaybackBufferIndex = (voicePlaybackBufferIndex + 1) % VOICE_PLAYBACK_BUFFERS;
+  stopVoiceMemoPlayback();
+  M5Cardputer.Speaker.setVolume(SPEAKER_DEFAULT_VOLUME);
 }
 
 void updateVoiceStatus()
