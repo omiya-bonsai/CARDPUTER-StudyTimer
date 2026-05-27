@@ -174,6 +174,19 @@ void loadVoiceMemoList()
     entry = dir.openNextFile();
   }
   dir.close();
+
+  for (uint8_t i = 0; i < voiceMemoCount; i++)
+  {
+    for (uint8_t j = i + 1; j < voiceMemoCount; j++)
+    {
+      if (voiceMemoEntries[i].path < voiceMemoEntries[j].path)
+      {
+        VoiceMemoEntry tmp = voiceMemoEntries[i];
+        voiceMemoEntries[i] = voiceMemoEntries[j];
+        voiceMemoEntries[j] = tmp;
+      }
+    }
+  }
 }
 
 void openVoiceMemos()
@@ -216,6 +229,14 @@ void startVoiceRecording()
 
   writeWavHeader(voiceMemoFile, 0);
   M5Cardputer.Speaker.end();
+  M5Cardputer.Mic.end();
+  auto micCfg = M5Cardputer.Mic.config();
+  micCfg.sample_rate = VOICE_SAMPLE_RATE;
+  micCfg.magnification = 32;
+  micCfg.over_sampling = 2;
+  micCfg.noise_filter_level = 0;
+  micCfg.input_channel = m5::input_only_right;
+  M5Cardputer.Mic.config(micCfg);
   if (!M5Cardputer.Mic.begin())
   {
     voiceMemoFile.close();
@@ -225,12 +246,6 @@ void startVoiceRecording()
     setVoiceStatus("MIC ERR");
     return;
   }
-  auto micCfg = M5Cardputer.Mic.config();
-  micCfg.magnification = 32;
-  micCfg.over_sampling = 2;
-  micCfg.noise_filter_level = 0;
-  micCfg.input_channel = m5::input_only_right;
-  M5Cardputer.Mic.config(micCfg);
 
   voiceRecording = true;
   voiceRecordingStartedMs = millis();
