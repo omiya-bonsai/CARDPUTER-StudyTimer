@@ -362,7 +362,7 @@ void drawScreen()
     drawSegments(1.0f, false);
     drawCenteredText(formatTime(remainingSeconds), 34, 5, TEXT_COLOR);
     drawDeviceStatus(78, deviceStatusColor());
-    drawCenteredLabel(richModeEnabled() ? tr("START  1-5  0  S L V", "開始  1-5  0  S L V") : tr("START  1-5  0  S", "開始  1-5  0  S"), 102, MUTED_COLOR);
+    drawCenteredLabel(richModeEnabled() ? tr("START  1-9  0  S L V", "開始  1-9  0  S L V") : tr("START  1-9  0  S", "開始  1-9  0  S"), 102, MUTED_COLOR);
     if (!sdAvailable)
     {
       drawCenteredText("LOG OFF", 126, 1, MUTED_COLOR);

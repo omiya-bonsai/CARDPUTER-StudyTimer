@@ -550,9 +550,12 @@ void handleKeyboard()
     }
     if (appState == STATE_READY)
     {
-      if (key >= '1' && key <= '5')
+      if (key >= '1' && key <= '9')
       {
-        startPreset(key - '1');
+        uint16_t minutes = static_cast<uint16_t>(key - '0') * 5;
+        applyTimerMinutes(minutes);
+        activeTimerSource = "preset" + String(key);
+        startTimer();
         return;
       }
       if (key == '0')
